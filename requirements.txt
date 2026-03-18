@@ -8,3 +8,6 @@ Pygments==2.19.2
 pytest==9.0.2
 typing-inspection==0.4.2
 typing_extensions==4.15.0
+pytest-playwright
+playwright
+pytest-playwright
