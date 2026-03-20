@@ -1,1 +1,4 @@
-docs/plans/
+agents/
+.venv/
+__pycache__/
+*.pyc
