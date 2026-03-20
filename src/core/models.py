@@ -18,3 +18,8 @@ class Job(BaseModel):
     required_skills: list[str] = Field(default_factory=list)
     custom_questions: list[str] = Field(default_factory=list)
     url: str
+
+class TailoredApplication(BaseModel):
+    job_id: str
+    tailored_bullets: list[str] = Field(..., description="3-5 ATS optimized resume bullets based strictly on the user's ledger.")
+    q_and_a_responses: dict[str, str] = Field(..., description="Answers to custom portal questions mapping question to answer.")

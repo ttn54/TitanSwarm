@@ -11,3 +11,4 @@ typing_extensions==4.15.0
 pytest-playwright
 playwright
 pytest-playwright
+openai
