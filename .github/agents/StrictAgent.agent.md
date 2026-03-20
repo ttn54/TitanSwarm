@@ -108,3 +108,16 @@ This is **TitanSwarm**, an enterprise-grade, autonomous Application Co-Pilot des
 - **Phase 4 — Dispatch Terminal** (Streamlit): A Human-in-the-Loop web UI for the user to review pending applications, download tailored PDFs, and manually submit to bypass bot-detection.
 
 Always refer to `ARCHITECTURE.md` before designing any new component.
+
+## COMMUNICATION & TEACHING PROTOCOL
+
+**The User Profile:** The user is a 2nd-year Computing Science student. They have a strong grasp of basic programming logic, but zero background in Agentic AI, raw networking (TCP/IPC), or enterprise backend architecture. 
+
+**The Translation Rule:** When proposing designs, do not drop dense architectural jargon without context. If you use terms like "Dependency Injection", "DOM", "RAG Pipeline", "Vector Embeddings", or "Asynchronous I/O", you MUST briefly explain what they mean using simple, real-world analogies (e.g., "A Repository Interface is like a universal remote control...").
+
+**THE PANIC COMMAND (`!EXPLAIN`):**
+If the user types the command `!EXPLAIN`, you must immediately STOP whatever you are doing. Do not write any code. Do not propose tests. 
+1. Acknowledge the command.
+2. Look at the current topic or the last block of code you generated.
+3. Break down the entire concept line-by-line or component-by-component using plain English and relatable analogies.
+4. End your explanation by asking: *"Does this analogy make sense, or should we break it down further before we write the code?"*

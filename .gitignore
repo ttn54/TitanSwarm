@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 docs/plans/
 ARCHITECTURE.md
+.github/agents/StrictAgent.agent.md
+example/real_scraped_data.json
