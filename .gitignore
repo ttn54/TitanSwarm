@@ -2,3 +2,4 @@ agents/
 .venv/
 __pycache__/
 *.pyc
+docs/plans/
