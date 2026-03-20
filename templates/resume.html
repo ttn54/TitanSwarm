@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Resume</title>
+    <style>
+        body {
+            font-family: 'Times New Roman', serif;
+            margin: 0;
+            padding: 40px;
+            color: #000;
+            font-size: 11pt;
+            line-height: 1.3;
+        }
+        h1 {
+            text-align: center;
+            font-size: 24pt;
+            margin-bottom: 5px;
+            font-weight: normal;
+        }
+        .contact-info {
+            text-align: center;
+            font-size: 10pt;
+            margin-bottom: 20px;
+        }
+        h2 {
+            font-size: 14pt;
+            border-bottom: 1px solid #000;
+            margin-top: 15px;
+            margin-bottom: 10px;
+            padding-bottom: 2px;
+            text-transform: uppercase;
+        }
+        .job-title {
+            font-weight: bold;
+            display: inline-block;
+        }
+        .job-date {
+            float: right;
+        }
+        .employer {
+            font-style: italic;
+            display: inline-block;
+        }
+        .job-location {
+            float: right;
+            font-style: italic;
+        }
+        .header-row {
+            margin-bottom: 3px;
+        }
+        ul {
+            margin-top: 5px;
+            margin-bottom: 15px;
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>{{ personal_info.name }}</h1>
+    <div class="contact-info">
+        {{ personal_info.email }} | {{ personal_info.phone }} | {{ personal_info.linkedin }} | {{ personal_info.github }}
+    </div>
+
+    <!-- The Tailored Skills/Summary section -->
+    <h2>Summary & Skills</h2>
+    <ul>
+        {% for bullet in ai_data.tailored_bullets %}
+            <li>{{ bullet }}</li>
+        {% endfor %}
+    </ul>
+
+    <!-- Standard Ledger Experience loop here, merging standard facts + tailored achievements -->
+    <h2>Experience</h2>
+    {% for job in ledger.experience %}
+    <div class="experience-block">
+        <div class="header-row">
+            <span class="job-title">{{ job.title }}</span>
+            <span class="job-date">{{ job.start_date }} - {{ job.end_date }}</span>
+        </div>
+        <div class="header-row">
+            <span class="employer">{{ job.company }}</span>
+            <span class="job-location">{{ job.location }}</span>
+        </div>
+        <ul>
+            {% for detail in job.bullets %}
+                <li>{{ detail }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endfor %}
+
+</body>
+</html>
