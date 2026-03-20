@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import List
 import asyncio
-import httpx
-from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
+import pandas as pd
+from jobspy import scrape_jobs
 from src.core.repository import JobRepository
 from src.core.models import Job
 
@@ -12,83 +11,75 @@ class BaseScraper(ABC):
         self.repository = repository
 
     @abstractmethod
-    async def scrape(self, query: str) -> List[Job]:
-        """Scrape jobs based on a query and return a list of Jobs"""
+    async def scrape(self, role: str, location: str, results_wanted: int = 10) -> List[Job]:
+        """Scrape jobs based on a role and location and return a list of Jobs"""
         pass
 
-class IntentScraper(BaseScraper):
-    async def scrape(self, intent_query: str) -> List[Job]:
+class UniversalScraper(BaseScraper):
+    async def scrape(self, role: str, location: str, results_wanted: int = 10) -> List[Job]:
         found_jobs = []
         
-        # 1. Broaden the intent just to be sure we are looking at Greenhouse if needed, but the user specifies it.
-        # We can add site:boards.greenhouse.io if it's not present.
-        if "site:" not in intent_query:
-            query = f"{intent_query} site:boards.greenhouse.io"
-        else:
-            query = intent_query
-            
-        print(f"🔍 Searching DDG for: {query}")
+        print(f"🔍 Searching Universal Aggregators for: {role} in {location}")
         
-        # DDGS is synchronous. In a rigorous concurrent workflow, run this in executor. 
-        # For simplicity, we just run it here.
-        results = []
-        with DDGS() as ddgs:
-            # We want just a few links to avoid spamming
-            for r in ddgs.text(query, max_results=10):
-                results.append(r)
+        # JobSpy is synchronous, in production wrap in run_in_executor
+        # We will cast it to list of dicts to process
+        try:
+            jobs_df = scrape_jobs(
+                site_name=["linkedin", "indeed", "glassdoor"],
+                search_term=role,
+                location=location,
+                results_wanted=results_wanted,
+                country_alice="usa" # Will generalize to location broadly
+            )
+        except Exception as e:
+            print(f"Aggregation search failed: {e}")
+            return found_jobs
+            
+        if jobs_df is None or jobs_df.empty:
+            print("No jobs found from aggregators.")
+            return found_jobs
+
+        for index, row in jobs_df.iterrows():
+            job_id = str(row.get('id', ''))
+            
+            # Deduplication
+            existing = await self.repository.get_job(job_id)
+            if existing:
+                continue
                 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for item in results:
-                url = item.get("href")
-                if not url or "boards.greenhouse.io" not in url:
-                    continue
+            try:
+                # Handle potential NaN values
+                description = row.get('description', '')
+                if pd.isna(description):
+                    description = ""
                     
-                job_id = url.split("/")[-1] if "/" in url else url
+                company = row.get('company', 'Unknown')
+                if pd.isna(company):
+                    company = "Unknown"
+                    
+                title = row.get('title', 'Unknown Role')
+                if pd.isna(title):
+                    title = "Unknown Role"
+                    
+                url = row.get('job_url', '')
+                if pd.isna(url):
+                    url = ""
+
+                job = Job(
+                    id=job_id,
+                    company=str(company),
+                    role=str(title),
+                    url=str(url),
+                    job_description=str(description),
+                    required_skills=[],
+                    custom_questions=[]
+                )
                 
-                # Deduplication check
-                existing = await self.repository.get_job(job_id)
-                if existing:
-                    continue
-                    
-                try:
-                    resp = await client.get(url)
-                    if resp.status_code != 200:
-                        continue
-                        
-                    # 2. Extract clean body text
-                    soup = BeautifulSoup(resp.text, 'html.parser')
-                    
-                    # Remove script and style elements
-                    for script in soup(["script", "style", "nav", "footer"]):
-                        script.decompose()
-                        
-                    # Get text
-                    body = soup.find('body')
-                    if body:
-                        text = body.get_text(separator='\n')
-                        # collapse whitespace
-                        clean_text = '\n'.join([line.strip() for line in text.splitlines() if line.strip()])
-                    else:
-                        clean_text = soup.get_text(separator='\n')
-                        
-                    # Create job
-                    company_name = url.split('/')[-3] if len(url.split('/')) > 3 else "Unknown"
-                    
-                    job = Job(
-                        id=job_id,
-                        company=company_name.capitalize(),
-                        role=item.get("title", "Unknown Role"),
-                        url=url,
-                        job_description=clean_text,
-                        required_skills=[], # We can use RAG to extract this later
-                        custom_questions=[]  # Can extract via RAG later
-                    )
-                    
-                    await self.repository.save_job(job)
-                    found_jobs.append(job)
-                    
-                except Exception as e:
-                    print(f"Error extracting {url}: {e}")
-                    
+                await self.repository.save_job(job)
+                found_jobs.append(job)
+            except Exception as e:
+                print(f"Failed to process job record {job_id}: {e}")
+                
         return found_jobs
+
 

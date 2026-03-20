@@ -5,7 +5,7 @@ import json
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.core.scraper import IntentScraper
+from src.core.scraper import UniversalScraper
 from src.core.repository import JobRepository
 from src.core.models import Job
 
@@ -28,19 +28,21 @@ class FileJobRepository(JobRepository):
 
 async def main():
     repo = FileJobRepository()
-    scraper = IntentScraper(repository=repo)
+    scraper = UniversalScraper(repository=repo)
     
-    print("🚀 Using TitanSwarm IntentScraper...")
-    query = "Software Engineer New Grad site:boards.greenhouse.io"
+    print("🚀 Using TitanSwarm UniversalScraper (JobSpy)...")
     
-    jobs = await scraper.scrape(query)
+    jobs = await scraper.scrape(
+        role="Software Engineer Intern", 
+        location="Vancouver, BC",
+        results_wanted=3
+    )
     
     print(f"\n✅ SUCCESS! Found {len(jobs)} real Software Engineering related jobs.")
     print(f"💾 Saved raw real data to {os.path.abspath(repo.filename)}")
     
-    if jobs:
-        print("\n--- PREVIEW OF REAL JOB DATA ---")
-        job = jobs[0]
+    for i, job in enumerate(jobs):
+        print(f"\n--- PREVIEW OF REAL JOB DATA #{i+1} ---")
         print(f"Company: {job.company}")
         print(f"Role: {job.role}")
         print(f"URL: {job.url}")
