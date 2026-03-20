@@ -93,7 +93,7 @@ When any test fails or unexpected behavior occurs:
 - **Always validate inputs** at system boundaries.
 - **One question at a time** during design — do not overwhelm with a list.
 - **Commit scope is one logical change** — do not batch unrelated changes.
-
+- **Never Commit without asking** give command to user so they commit themself
 ---
 
 ## PROJECT CONTEXT
