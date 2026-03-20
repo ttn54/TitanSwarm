@@ -66,15 +66,38 @@
     </div>
 
     <!-- The Tailored Skills/Summary section -->
-    <h2>Summary & Skills</h2>
+    <h2>Tailored Summary & Skills</h2>
     <ul>
         {% for bullet in ai_data.tailored_bullets %}
             <li>{{ bullet }}</li>
         {% endfor %}
     </ul>
 
+    {% if ledger.education %}
+    <h2>Education</h2>
+    {% for edu in ledger.education %}
+    <div class="experience-block">
+        <div class="header-row">
+            <span class="job-title">{{ edu.institution }}</span>
+            <span class="job-date">{{ edu.start_date }} {% if edu.end_date %} - {{ edu.end_date }}{% endif %}</span>
+        </div>
+        <div class="header-row">
+            <span class="employer">{{ edu.degree }}</span>
+            <span class="job-location">{{ edu.location }}</span>
+        </div>
+        {% if edu.bullets %}
+        <ul>
+            {% for detail in edu.bullets %}
+                <li>{{ detail }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
     <!-- Standard Ledger Experience loop here, merging standard facts + tailored achievements -->
-    <h2>Experience</h2>
+    <h2>Experience & Projects</h2>
     {% for job in ledger.experience %}
     <div class="experience-block">
         <div class="header-row">

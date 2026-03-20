@@ -12,3 +12,4 @@ pytest-playwright
 playwright
 pytest-playwright
 openai
+jinja2
