@@ -3,3 +3,4 @@ agents/
 __pycache__/
 *.pyc
 docs/plans/
+ARCHITECTURE.md
