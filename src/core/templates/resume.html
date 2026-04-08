@@ -29,12 +29,12 @@
             margin-bottom: 14px;
         }
 
-        /* ── Section headings — teal, small-caps, underlined ── */
+        /* ── Section headings — teal, uppercase, underlined ── */
         h2 {
             font-size: 10pt;
             font-weight: bold;
-            font-variant: small-caps;
-            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
             color: #0F4761;
             border-bottom: 1.2px solid #0F4761;
             padding-bottom: 1px;
@@ -83,6 +83,7 @@
     {%- if personal_info.email    %}{%- set _ = parts.append(personal_info.email)    %}{%- endif -%}
     {%- if personal_info.linkedin %}{%- set _ = parts.append(personal_info.linkedin) %}{%- endif -%}
     {%- if personal_info.github   %}{%- set _ = parts.append(personal_info.github)   %}{%- endif -%}
+    {%- if personal_info.website  %}{%- set _ = parts.append(personal_info.website)  %}{%- endif -%}
     {{ parts | join(' &nbsp;|&nbsp; ') }}
 </div>
 
@@ -91,7 +92,7 @@
 <h2>Technical Skills</h2>
 {% for category, skill_list in ai_data.skills_to_highlight.items() %}
 {% if skill_list %}
-<div class="skills-line"><strong>{{ category }}:</strong> {{ skill_list | join(', ') }}</div>
+<div class="skills-line">•&nbsp;<strong>{{ category }}:</strong> {{ skill_list | join(', ') }}</div>
 {% endif %}
 {% endfor %}
 {% endif %}
@@ -107,7 +108,7 @@
     </div>
     <div class="entry-sub">{{ proj.project_type }} &nbsp;&middot;&nbsp; {{ proj.tech }}</div>
     <ul>
-        {% for b in proj.bullets %}<li>{{ b }}</li>{% endfor %}
+        {% for b in proj.bullets %}<li>{{ b | mdbold }}</li>{% endfor %}
     </ul>
 </div>
 {% endfor %}
@@ -127,7 +128,7 @@
         {% if edu.location %}<span class="entry-loc">{{ edu.location }}</span>{% endif %}
     </div>
     {% if edu.bullets %}
-    <ul>{% for b in edu.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+    <ul>{% for b in edu.bullets %}<li>{{ b | mdbold }}</li>{% endfor %}</ul>
     {% endif %}
 </div>
 {% endfor %}
@@ -145,7 +146,7 @@
     {% if job.location %}
     <div class="row"><span></span><span class="entry-loc">{{ job.location }}</span></div>
     {% endif %}
-    <ul>{% for b in job.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+    <ul>{% for b in job.bullets %}<li>{{ b | mdbold }}</li>{% endfor %}</ul>
 </div>
 {% endfor %}
 {% endif %}

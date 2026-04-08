@@ -387,11 +387,51 @@ if "profile" not in st.session_state:
 # reflect the saved profile after navigation, not a stale first-render cache.
 if "_pf_name" not in st.session_state:
     _pf0 = st.session_state.profile
-    st.session_state["_pf_name"]    = _pf0.name
-    st.session_state["_pf_email"]   = _pf0.email
-    st.session_state["_pf_phone"]   = _pf0.phone
-    st.session_state["_pf_github"]  = _pf0.github
-    st.session_state["_pf_linkedin"]= _pf0.linkedin
+    # If DB profile has no name, fall back to ledger contact line
+    _ledger_name = ""
+    _ledger_email = ""
+    _ledger_phone = ""
+    _ledger_linkedin = ""
+    _ledger_github = ""
+    _ledger_website = ""
+    try:
+        _lp = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
+        if os.path.exists(_lp):
+            _lc = open(_lp, encoding="utf-8").read()
+            _marker = "## Imported Resume:"
+            _body = _lc.split(_marker, 1)[1] if _marker in _lc else _lc
+            _lines = [l.strip() for l in _body.splitlines() if l.strip()]
+            # First non-filename line is the name
+            if _lines and not _lines[0].endswith(".pdf"):
+                _ledger_name = _lines[0]
+            elif len(_lines) > 1:
+                _ledger_name = _lines[1]
+            # Second line usually has phone/email/linkedin
+            import re as _re_init
+            for _ll in _lines[1:4]:
+                if not _ledger_email:
+                    _em = _re_init.search(r'[\w.+-]+@[\w-]+\.[\w.]+', _ll)
+                    if _em: _ledger_email = _em.group()
+                if not _ledger_phone:
+                    _ph = _re_init.search(r'\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}', _ll)
+                    if _ph: _ledger_phone = _ph.group()
+                if not _ledger_linkedin:
+                    _li = _re_init.search(r'linkedin\.com/in/[\w/-]+', _ll)
+                    if _li: _ledger_linkedin = _li.group().rstrip('/|')
+                if not _ledger_github:
+                    _gh = _re_init.search(r'github\.com/[\w-]+', _ll)
+                    if _gh: _ledger_github = _gh.group()
+                if not _ledger_website:
+                    _ws = _re_init.search(r'\b[\w-]+\.me\b', _ll)
+                    if _ws: _ledger_website = _ws.group()
+    except Exception:
+        pass
+    st.session_state["_pf_name"]    = _pf0.name    or _ledger_name
+    st.session_state["_pf_email"]   = _pf0.email   or _ledger_email
+    st.session_state["_pf_phone"]   = _pf0.phone   or _ledger_phone
+    st.session_state["_pf_github"]  = _pf0.github  or _ledger_github
+    st.session_state["_pf_linkedin"]= _pf0.linkedin or _ledger_linkedin
+    st.session_state["_pf_website"] = _ledger_website
     st.session_state["_pf_summary"] = _pf0.base_summary
     st.session_state["_pf_skills"]  = ", ".join(_pf0.skills)
 
@@ -624,6 +664,7 @@ if nav == "Job Feed":
                                             "phone":    st.session_state.get("_pf_phone")    or _pi.phone    or "",
                                             "linkedin": st.session_state.get("_pf_linkedin") or _pi.linkedin or "",
                                             "github":   st.session_state.get("_pf_github")   or _pi.github   or "",
+                                            "website":  st.session_state.get("_pf_website")  or "",
                                         },
                                         "education":  _structured["education"],
                                         "experience": _structured["experience"],
@@ -639,6 +680,7 @@ if nav == "Job Feed":
                                         pdf_bytes = fh.read()
                                     st.session_state[f"pdf_{job.id}"] = pdf_bytes
                                     st.session_state[f"qa_{job.id}"]  = result.q_and_a_responses
+                                    st.session_state[f"autodownload_{job.id}"] = True
                                     run_async(repo.update_status(job.id, JobStatus.PENDING_REVIEW))
                                     st.toast(f"Resume for {job.company} is ready!", icon="✅")
                                     st.rerun()
@@ -650,11 +692,22 @@ if nav == "Job Feed":
                     # Show download button if PDF is already generated for this job
                     if f"pdf_{job.id}" in st.session_state:
                         import re as _re2
+                        import base64 as _b64
                         _s2 = lambda s: _re2.sub(r'[^\w\s-]', '', s).strip().replace(' ', '_')
+                        _dl_fname = f"{_s2(job.company)}_{_s2(job.role)}_Resume.pdf"
+                        _b64_pdf = _b64.b64encode(st.session_state[f"pdf_{job.id}"]).decode()
+                        _auto = st.session_state.pop(f"autodownload_{job.id}", False)
+                        # Render an invisible anchor; auto-click it once after tailoring
+                        st.components.v1.html(
+                            f'<a id="dl" href="data:application/pdf;base64,{_b64_pdf}"'
+                            f' download="{_dl_fname}" style="display:none">dl</a>'
+                            f'{"<script>document.getElementById(\'dl\').click();</script>" if _auto else ""}',
+                            height=0,
+                        )
                         st.download_button(
                             "⬇️ Download PDF",
                             data=st.session_state[f"pdf_{job.id}"],
-                            file_name=f"{_s2(job.company)}_{_s2(job.role)}_Resume.pdf",
+                            file_name=_dl_fname,
                             mime="application/pdf",
                             key=f"dl_{job.id}",
                             use_container_width=True,

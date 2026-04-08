@@ -1,11 +1,17 @@
 import os
+import re
 from jinja2 import Environment, FileSystemLoader
 from playwright.async_api import async_playwright
 from src.core.models import Job, TailoredApplication
 
+def _md_bold(text: str) -> str:
+    """Convert **word** markdown bold to HTML <strong> tags for PDF rendering."""
+    return re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', str(text))
+
 class PDFGenerator:
     def __init__(self, template_dir: str = "templates"):
         self.env = Environment(loader=FileSystemLoader(template_dir))
+        self.env.filters['mdbold'] = _md_bold
     
     async def generate_resume_pdf(self, 
                                   user_ledger: dict, 
