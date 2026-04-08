@@ -498,9 +498,24 @@ if "kanban_page" not in st.session_state:
 
 # AITailor + PDFGenerator — initialized once, reused across all button clicks.
 # AITailor will be None if OPENAI_API_KEY is not set; the UI handles that gracefully.
+
+# Load the sentence-transformer model FIRST so LedgerManager can reuse it,
+# avoiding a second redundant download and preventing BrokenPipeError from
+# tqdm trying to flush a broken stderr pipe during Streamlit's process fork.
+if "st_model" not in st.session_state:
+    import sys, io
+    from sentence_transformers import SentenceTransformer
+    _old_stderr = sys.stderr
+    sys.stderr = io.StringIO()   # silence tqdm progress during model load
+    try:
+        st.session_state.st_model = SentenceTransformer("all-MiniLM-L6-v2")
+    finally:
+        sys.stderr = _old_stderr
+
 if "tailor" not in st.session_state:
     _ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
     _lm = LedgerManager(ledger_path=_ledger_path, db_path="data/faiss.index")
+    _lm.model = st.session_state.st_model   # inject — skip second model load
     try:
         _lm.build_index()
     except FileNotFoundError:
@@ -508,7 +523,7 @@ if "tailor" not in st.session_state:
     try:
         st.session_state.tailor = AITailor(ledger_manager=_lm)
     except ValueError:
-        st.session_state.tailor = None  # OPENAI_API_KEY not set
+        st.session_state.tailor = None  # API key not set
 
 if "pdf_gen" not in st.session_state:
     _tmpl = os.path.join(os.path.dirname(__file__), "..", "core", "templates")
@@ -519,10 +534,7 @@ profile = st.session_state.profile
 tailor  = st.session_state.tailor
 pdf_gen = st.session_state.pdf_gen
 
-# Lazy-load sentence-transformer model for match scoring (cached across reruns)
-if "st_model" not in st.session_state:
-    from sentence_transformers import SentenceTransformer
-    st.session_state.st_model = SentenceTransformer("all-MiniLM-L6-v2")
+# st_model is already loaded above — just alias it for use in match scoring
 st_model = st.session_state.st_model
 
 # Cache resume text for match scoring (avoids re-reading file every rerun)
