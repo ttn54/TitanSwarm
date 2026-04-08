@@ -244,6 +244,132 @@ async def _run_discovery(repo, role: str, location: str, count: int) -> list[Job
     return await repo.get_jobs_by_status(JobStatus.DISCOVERED)
 
 
+def _parse_ledger_for_pdf(ledger_path: str) -> dict:
+    """
+    Parses the imported resume section of ledger.md into structured
+    education and experience lists for the PDF template.
+
+    Returns a dict with keys: education, experience.
+    Each education entry: {institution, degree, start_date, end_date, location, bullets}
+    Each experience entry: {title, company, start_date, end_date, location, bullets}
+    """
+    import re
+    if not os.path.exists(ledger_path):
+        return {"education": [], "experience": []}
+
+    content = open(ledger_path, encoding="utf-8").read()
+    marker = "## Imported Resume:"
+    text = content.split(marker, 1)[1] if marker in content else content
+    lines = [l.rstrip() for l in text.splitlines()]
+
+    # Detect section headings (all-caps lines or lines like "EDUCATION", "TECHNICAL PROJECTS", etc.)
+    SECTION_RE = re.compile(
+        r'^(EDUCATION|TECHNICAL PROJECTS?|TECHNICAL SKILLS?|WORK EXPERIENCE|EXPERIENCE|PROJECTS?)$',
+        re.IGNORECASE
+    )
+    # Date pattern: looks like "Jan 2026 – Present" or "May 2025 – Present"
+    DATE_RE = re.compile(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}')
+
+    education = []
+    experience = []
+    current_section = None
+    current_entry = None
+
+    def flush(entry, section):
+        if not entry:
+            return
+        if section in ("EDUCATION",):
+            education.append(entry)
+        elif section in ("WORK EXPERIENCE", "EXPERIENCE"):
+            experience.append(entry)
+        # TECHNICAL PROJECTS → handled as tailored_projects by AI, not here
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if not line:
+            i += 1
+            continue
+
+        if SECTION_RE.match(line):
+            flush(current_entry, current_section)
+            current_entry = None
+            current_section = line.upper()
+            i += 1
+            continue
+
+        if current_section == "EDUCATION":
+            # Lines like: "Bachelor of Science, Computing Science May 2025 – Present"
+            date_m = DATE_RE.search(line)
+            if date_m and not line.startswith("•"):
+                flush(current_entry, current_section)
+                # Extract dates
+                date_str = line[date_m.start():].strip()
+                title_part = line[:date_m.start()].strip()
+                # Next non-empty line is usually the institution name
+                institution = ""
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines) and not lines[j].strip().startswith("•"):
+                    institution = lines[j].strip()
+                    i = j
+                # Parse date range
+                parts = re.split(r'[–—-]', date_str)
+                start_d = parts[0].strip() if parts else ""
+                end_d   = parts[1].strip() if len(parts) > 1 else "Present"
+                current_entry = {
+                    "institution": institution,
+                    "degree": title_part,
+                    "start_date": start_d,
+                    "end_date": end_d,
+                    "location": "",
+                    "bullets": [],
+                }
+            elif line.startswith("•") and current_entry:
+                current_entry["bullets"].append(line.lstrip("• ").strip())
+
+        elif current_section in ("WORK EXPERIENCE", "EXPERIENCE"):
+            date_m = DATE_RE.search(line)
+            if date_m and not line.startswith("•"):
+                flush(current_entry, current_section)
+                date_str   = line[date_m.start():].strip()
+                title_part = line[:date_m.start()].strip()
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                company  = ""
+                location = ""
+                if j < len(lines) and not lines[j].strip().startswith("•"):
+                    cline = lines[j].strip()
+                    # "Pho Goodness Restaurant Burnaby, BC"
+                    loc_m = re.search(r'\b([A-Z][a-z]+,\s*[A-Z]{2})\s*$', cline)
+                    if loc_m:
+                        location = loc_m.group(1)
+                        company  = cline[:loc_m.start()].strip()
+                    else:
+                        company = cline
+                    i = j
+                parts  = re.split(r'[–—-]', date_str)
+                start_d = parts[0].strip() if parts else ""
+                end_d   = parts[1].strip() if len(parts) > 1 else "Present"
+                current_entry = {
+                    "title": title_part,
+                    "company": company,
+                    "start_date": start_d,
+                    "end_date": end_d,
+                    "location": location,
+                    "bullets": [],
+                }
+            elif line.startswith("•") and current_entry:
+                current_entry["bullets"].append(line.lstrip("• ").strip())
+
+        i += 1
+
+    flush(current_entry, current_section)
+    return {"education": education, "experience": experience}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION STATE INIT
 # ─────────────────────────────────────────────────────────────────────────────
@@ -255,6 +381,19 @@ if "repo" not in st.session_state:
 
 if "profile" not in st.session_state:
     st.session_state.profile = UserProfile()
+
+# Seed form display keys from the saved profile (once per session).
+# Using explicit session-state keys instead of value= ensures widgets always
+# reflect the saved profile after navigation, not a stale first-render cache.
+if "_pf_name" not in st.session_state:
+    _pf0 = st.session_state.profile
+    st.session_state["_pf_name"]    = _pf0.name
+    st.session_state["_pf_email"]   = _pf0.email
+    st.session_state["_pf_phone"]   = _pf0.phone
+    st.session_state["_pf_github"]  = _pf0.github
+    st.session_state["_pf_linkedin"]= _pf0.linkedin
+    st.session_state["_pf_summary"] = _pf0.base_summary
+    st.session_state["_pf_skills"]  = ", ".join(_pf0.skills)
 
 if "pref_role" not in st.session_state:
     st.session_state.pref_role = "Software Engineer"
@@ -457,45 +596,65 @@ if nav == "Job Feed":
                 with right:
                     st.markdown("<br>", unsafe_allow_html=True)
 
+                    # Show any error from a previous tailor attempt for this job
+                    err_key = f"tailor_err_{job.id}"
+                    if err_key in st.session_state:
+                        st.error(st.session_state.pop(err_key))
+
                     if st.button("📄 Tailor Resume", key=f"apply_{job.id}", type="primary", use_container_width=True):
                         if tailor is None:
-                            st.error("Set the OPENAI_API_KEY environment variable to enable AI tailoring.")
+                            st.session_state[err_key] = (
+                                "AI engine is not configured. "
+                                "Make sure GEMINI_API_KEY (or OPENAI_API_KEY) is set in your .env file."
+                            )
+                            st.rerun()
                         else:
                             with st.spinner(f"Tailoring resume for {job.company}…"):
                                 try:
                                     result: TailoredApplication = run_async(tailor.tailor_application(job))
-                                    # Build the user_ledger dict the PDF template expects
+                                    _ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
+                                    _structured  = _parse_ledger_for_pdf(_ledger_path)
+                                    # Always read latest form values — avoids "Your Name" when
+                                    # auto-fill populated the keys but Save Profile wasn't clicked
+                                    _pi = st.session_state.profile
                                     user_ledger = {
                                         "personal_info": {
-                                            "name":     profile.name or "Your Name",
-                                            "email":    profile.email or "",
-                                            "phone":    profile.phone or "",
-                                            "linkedin": profile.linkedin or "",
-                                            "github":   profile.github or "",
+                                            "name":     st.session_state.get("_pf_name")     or _pi.name     or "",
+                                            "email":    st.session_state.get("_pf_email")    or _pi.email    or "",
+                                            "phone":    st.session_state.get("_pf_phone")    or _pi.phone    or "",
+                                            "linkedin": st.session_state.get("_pf_linkedin") or _pi.linkedin or "",
+                                            "github":   st.session_state.get("_pf_github")   or _pi.github   or "",
                                         },
-                                        "education": [],
-                                        "experience": profile.experience or [],
+                                        "education":  _structured["education"],
+                                        "experience": _structured["experience"],
                                     }
-                                    output_path = f"output/{job.id}_resume.pdf"
+                                    # Sanitize company + role for a readable filename
+                                    import re as _re
+                                    _safe = lambda s: _re.sub(r'[^\w\s-]', '', s).strip().replace(' ', '_')
+                                    _fname = f"{_safe(job.company)}_{_safe(job.role)}_Resume.pdf"
+                                    output_path = os.path.join("output", _fname)
                                     os.makedirs("output", exist_ok=True)
                                     run_async(pdf_gen.generate_resume_pdf(user_ledger, result, output_path=output_path))
-                                    with open(output_path, "rb") as f:
-                                        pdf_bytes = f.read()
-                                    # Cache in session state so download button can serve it
+                                    with open(output_path, "rb") as fh:
+                                        pdf_bytes = fh.read()
                                     st.session_state[f"pdf_{job.id}"] = pdf_bytes
                                     st.session_state[f"qa_{job.id}"]  = result.q_and_a_responses
                                     run_async(repo.update_status(job.id, JobStatus.PENDING_REVIEW))
                                     st.toast(f"Resume for {job.company} is ready!", icon="✅")
                                     st.rerun()
                                 except Exception as e:
-                                    st.error(f"Tailoring failed: {e}")
+                                    import traceback
+                                    st.session_state[err_key] = f"Tailoring failed: {e}\n\n{traceback.format_exc()}"
+                                    st.rerun()
 
                     # Show download button if PDF is already generated for this job
                     if f"pdf_{job.id}" in st.session_state:
+                        import re as _re2
+                        _s2 = lambda s: _re2.sub(r'[^\w\s-]', '', s).strip().replace(' ', '_')
                         st.download_button(
                             "⬇️ Download PDF",
                             data=st.session_state[f"pdf_{job.id}"],
-                            file_name=f"{job.company}_Resume.pdf",
+                            file_name=f"{_s2(job.company)}_{_s2(job.role)}_Resume.pdf",
                             mime="application/pdf",
                             key=f"dl_{job.id}",
                             use_container_width=True,
@@ -627,6 +786,12 @@ elif nav == "My Applications":
 # PAGE: PREFERENCES
 # ═════════════════════════════════════════════════════════════════════════════
 elif nav == "Preferences":
+    # Flush any pending autofill values BEFORE any keyed widget is instantiated.
+    # This avoids the "cannot be modified after widget is instantiated" error.
+    if "_pf_pending" in st.session_state:
+        for _k, _v in st.session_state.pop("_pf_pending").items():
+            st.session_state[_k] = _v
+
     st.markdown('<div class="main-header">Preferences</div>', unsafe_allow_html=True)
     st.markdown('<div class="main-subheader">Configure your target parameters and personal profile. The RAG engine uses this to tailor every application.</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
@@ -646,12 +811,12 @@ elif nav == "Preferences":
             st.markdown('<div class="profile-card-title">Identity</div>', unsafe_allow_html=True)
             a1, a2 = st.columns(2)
             with a1:
-                profile.name  = st.text_input("Full Name",  value=pf.name,  placeholder="Jane Doe")
-                profile.email = st.text_input("Email",      value=pf.email, placeholder="jane@sfu.ca")
-                profile.phone = st.text_input("Phone",      value=pf.phone, placeholder="+1 (604) 000-0000")
+                st.text_input("Full Name",  key="_pf_name",    placeholder="Jane Doe")
+                st.text_input("Email",      key="_pf_email",   placeholder="jane@sfu.ca")
+                st.text_input("Phone",      key="_pf_phone",   placeholder="+1 (604) 000-0000")
             with a2:
-                profile.github   = st.text_input("GitHub",   value=pf.github,   placeholder="github.com/janedoe")
-                profile.linkedin = st.text_input("LinkedIn", value=pf.linkedin, placeholder="linkedin.com/in/janedoe")
+                st.text_input("GitHub",   key="_pf_github",   placeholder="github.com/janedoe")
+                st.text_input("LinkedIn", key="_pf_linkedin", placeholder="linkedin.com/in/janedoe")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -659,23 +824,29 @@ elif nav == "Preferences":
         with st.container(border=True):
             st.markdown('<div class="profile-card-title">Context Ledger — AI Ground Truth</div>', unsafe_allow_html=True)
             st.markdown('<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.75rem;">The RAG engine uses ONLY these verified facts. No hallucinations.</div>', unsafe_allow_html=True)
-
-            profile.base_summary = st.text_area(
+            st.text_area(
                 "Professional Summary",
-                value=pf.base_summary, height=110,
+                key="_pf_summary", height=110,
                 placeholder="2nd-year Computing Science student at SFU, 3.74 GPA. Built a custom Raft consensus DB in Go…",
             )
-            skills_raw = st.text_input(
+            st.text_input(
                 "Hard Skills (comma-separated)",
-                value=", ".join(pf.skills),
+                key="_pf_skills",
                 placeholder="Python, Go, PostgreSQL, FAISS, LangChain, Docker…",
             )
-            profile.skills = [s.strip() for s in skills_raw.split(",") if s.strip()]
 
         st.markdown("<br>", unsafe_allow_html=True)
 
         if st.button("💾  Save Profile", type="primary"):
-            st.session_state.profile = profile
+            st.session_state.profile = UserProfile(
+                name=st.session_state.get("_pf_name", ""),
+                email=st.session_state.get("_pf_email", ""),
+                phone=st.session_state.get("_pf_phone", ""),
+                github=st.session_state.get("_pf_github", ""),
+                linkedin=st.session_state.get("_pf_linkedin", ""),
+                base_summary=st.session_state.get("_pf_summary", ""),
+                skills=[s.strip() for s in st.session_state.get("_pf_skills", "").split(",") if s.strip()],
+            )
             st.toast("Profile saved!", icon="🔒")
             st.rerun()
 
@@ -684,11 +855,16 @@ elif nav == "Preferences":
         with st.container(border=True):
             st.markdown('<div class="profile-card-title">Job Preferences</div>', unsafe_allow_html=True)
 
+            ROLE_OPTIONS = [
+                "Software Engineer", "Software Engineer Intern",
+                "Machine Learning Engineer", "Backend Engineer",
+                "Frontend Engineer", "Data Engineer", "Other",
+            ]
             pref_role = st.selectbox(
                 "Target Role",
-                options=list(SKILLS_MAP.keys()) + ["Other"],
-                index=list(SKILLS_MAP.keys()).index(st.session_state.pref_role)
-                if st.session_state.pref_role in SKILLS_MAP else 0,
+                options=ROLE_OPTIONS,
+                index=ROLE_OPTIONS.index(st.session_state.pref_role)
+                if st.session_state.pref_role in ROLE_OPTIONS else 0,
             )
             pref_loc = st.text_input("Preferred Location", value=st.session_state.pref_location,
                                      placeholder="Remote · Vancouver · San Francisco")
@@ -716,8 +892,56 @@ elif nav == "Preferences":
         # ── Resume upload ──
         with st.container(border=True):
             st.markdown('<div class="profile-card-title">Base Resume</div>', unsafe_allow_html=True)
-            st.markdown('<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.75rem;">Parsed and embedded into FAISS vector store on upload.</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.75rem;">Upload your PDF resume — text is extracted and added to the AI\'s fact ledger.</div>', unsafe_allow_html=True)
             uploaded = st.file_uploader("PDF", type=["pdf"], label_visibility="collapsed")
-            if uploaded:
-                st.success(f"**{uploaded.name}** ingested ✓", icon="✅")
+            if uploaded and st.button("📥 Ingest Resume into Ledger", use_container_width=True):
+                try:
+                    import pdfplumber, io, re
+                    with pdfplumber.open(io.BytesIO(uploaded.read())) as pdf:
+                        text = "\n".join(page.extract_text() or "" for page in pdf.pages).strip()
+                    if not text:
+                        st.error("Could not extract text from this PDF. Make sure it is not a scanned image.")
+                    else:
+                        # ── Auto-fill profile fields from resume ────────────────
+                        lines = [l.strip() for l in text.splitlines() if l.strip()]
+                        email_m    = re.search(r'[\w.+-]+@[\w.-]+\.[a-z]{2,}', text, re.IGNORECASE)
+                        phone_m    = re.search(r'(\+?1[\s.-])?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}', text)
+                        github_m   = re.search(r'github\.com/([\w-]+)', text, re.IGNORECASE)
+                        linkedin_m = re.search(r'linkedin\.com/in/([\w-]+)', text, re.IGNORECASE)
+                        # ── Stage extracted fields for the form (written before next widget render) ──
+                        pf_cur = st.session_state.profile
+                        new_name     = (lines[0] if lines else "") or pf_cur.name
+                        new_email    = (email_m.group(0)    if email_m    else "") or pf_cur.email
+                        new_phone    = (phone_m.group(0)    if phone_m    else "") or pf_cur.phone
+                        new_github   = (f"github.com/{github_m.group(1)}"   if github_m   else "") or pf_cur.github
+                        new_linkedin = (f"linkedin.com/in/{linkedin_m.group(1)}" if linkedin_m else "") or pf_cur.linkedin
+                        # Use a staging key — the _pf_* keys are widget-owned and can't be
+                        # written here (widgets already rendered above us on this page).
+                        st.session_state["_pf_pending"] = {
+                            "_pf_name":     new_name,
+                            "_pf_email":    new_email,
+                            "_pf_phone":    new_phone,
+                            "_pf_github":   new_github,
+                            "_pf_linkedin": new_linkedin,
+                        }
+                        # Persist to profile for PDF generation
+                        st.session_state.profile = UserProfile(
+                            name=new_name, email=new_email, phone=new_phone,
+                            github=new_github, linkedin=new_linkedin,
+                            base_summary=pf_cur.base_summary,
+                            skills=pf_cur.skills,
+                        )
+                        # ── Write to ledger (replace any previous import) ──────
+                        ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
+                        existing = open(ledger_path, encoding="utf-8").read()
+                        marker = "## Imported Resume:"
+                        base = existing.split(marker)[0].rstrip()
+                        with open(ledger_path, "w", encoding="utf-8") as f:
+                            f.write(base + f"\n\n{marker} {uploaded.name}\n\n{text}")
+                        if st.session_state.tailor:
+                            st.session_state.tailor.ledger.build_index()
+                        st.toast(f"{uploaded.name} ingested ✓  Profile fields auto-filled above.", icon="✅")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Resume ingestion failed: {e}")
 
