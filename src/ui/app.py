@@ -9,7 +9,7 @@ import random
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from src.core.models import Job, JobStatus, UserProfile
-from src.ui.mock_repo import MockUIRepository
+from src.infrastructure.postgres_repo import PostgresRepository
 from uuid import uuid4
 
 # ==========================================
@@ -64,8 +64,10 @@ st.markdown("""
 # SESSION STATE & REPOSITORY INITIALIZATION
 # ==========================================
 if "repo" not in st.session_state:
-    st.session_state.repo = MockUIRepository()
-    st.session_state.repo.jobs = {} # Start empty for a fresh UI experience
+    dsn = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///titanswarm.db")
+    repo = PostgresRepository(dsn)
+    asyncio.run(repo.init_db())
+    st.session_state.repo = repo
 
 if "profile" not in st.session_state:
     st.session_state.profile = UserProfile()
@@ -176,7 +178,7 @@ elif menu_selection == "📂 The Vault":
         skills_csv = st.text_input("Hard Skills (Comma Separated)", value=",".join(profile.skills))
         profile.skills = [s.strip() for s in skills_csv.split(',')] if skills_csv else []
         
-        if st.button("💾 Save Ledger to TitanStore", type="primary"):
+        if st.button("💾 Save Profile Ledger", type="primary"):
             st.toast("Ledger successfully synchronized to database.", icon="🔒")
 
 # ==========================================
