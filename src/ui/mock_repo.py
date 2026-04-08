@@ -36,8 +36,9 @@ class MockUIRepository(JobRepository):
         )
         self.jobs[submitted_job.id] = submitted_job
 
-    async def save_job(self, job: Job):
+    async def save_job(self, job: Job) -> bool:
         self.jobs[job.id] = job
+        return True
 
     async def get_job(self, job_id: str) -> Optional[Job]:
         return self.jobs.get(job_id)

@@ -18,13 +18,24 @@ def test_incomplete_repository_implementation():
 
 def test_valid_repository_implementation():
     """Ensure a correctly implemented subclass can be instantiated."""
+    from src.core.models import JobStatus
+    from typing import List
+
     class GoodRepo(JobRepository):
         async def save_job(self, job: Job) -> bool:
             return True
-            
+
         async def get_job(self, job_id: str) -> Job | None:
             return None
-            
-    # This should not raise an error
+
+        async def update_status(self, job_id: str, status: JobStatus) -> bool:
+            return True
+
+        async def get_jobs_by_status(self, status: JobStatus) -> List[Job]:
+            return []
+
+        async def count_all(self) -> int:
+            return 0
+
     repo = GoodRepo()
     assert isinstance(repo, JobRepository)

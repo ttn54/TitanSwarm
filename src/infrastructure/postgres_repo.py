@@ -107,3 +107,21 @@ class PostgresRepository(JobRepository):
             result = await session.execute(select(JobModel).where(JobModel.status == status))
             job_models = result.scalars().all()
             return [model.to_pydantic() for model in job_models]
+
+    async def update_status(self, job_id: str, status: JobStatus) -> bool:
+        """Transitions a job to a new status."""
+        async with self.async_session() as session:
+            result = await session.execute(select(JobModel).where(JobModel.id == job_id))
+            job_model = result.scalar_one_or_none()
+            if job_model is None:
+                return False
+            job_model.status = status
+            await session.commit()
+            return True
+
+    async def count_all(self) -> int:
+        """Returns the total count of all jobs."""
+        from sqlalchemy import func
+        async with self.async_session() as session:
+            result = await session.execute(select(func.count()).select_from(JobModel))
+            return result.scalar() or 0
