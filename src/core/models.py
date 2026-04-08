@@ -19,10 +19,18 @@ class Job(BaseModel):
     custom_questions: list[str] = Field(default_factory=list)
     url: str
 
+class TailoredProject(BaseModel):
+    title: str = Field(..., description="Project name, e.g. 'TitanStore'")
+    tech: str = Field(..., description="Tech stack string, e.g. 'Go, SQL, Docker'")
+    date: str = Field(..., description="Date range, e.g. 'Jan 2026 – Present'")
+    bullets: list[str] = Field(..., description="2-3 bullets rewritten to mirror the JD's keywords. ONLY facts from the resume.")
+
 class TailoredApplication(BaseModel):
     job_id: str
-    tailored_bullets: list[str] = Field(..., description="3-5 ATS optimized resume bullets based strictly on the user's ledger.")
-    q_and_a_responses: dict[str, str] = Field(..., description="Answers to custom portal questions mapping question to answer.")
+    summary: str = Field(..., description="2-sentence professional summary tailored to this specific role.")
+    skills_to_highlight: list[str] = Field(..., description="8-10 skills from the resume most relevant to this JD.")
+    tailored_projects: list[TailoredProject] = Field(..., description="Each project from the resume with bullets rewritten for this JD.")
+    q_and_a_responses: dict[str, str] = Field(default_factory=dict, description="Answers to custom portal questions.")
 
 class UserProfile(BaseModel):
     name: str = ""

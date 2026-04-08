@@ -1,8 +1,6 @@
 import pytest
 from pydantic import ValidationError
-
-# We are testing the models before they are implemented
-from src.core.models import Job, JobStatus
+from src.core.models import Job, JobStatus, TailoredApplication, TailoredProject
 
 def test_job_model_creation():
     job = Job(
@@ -12,8 +10,6 @@ def test_job_model_creation():
         job_description="Do things.",
         url="https://example.com/job"
     )
-    
-    # Defaults should be applied
     assert job.status == JobStatus.DISCOVERED
     assert job.required_skills == []
     assert job.custom_questions == []
@@ -26,3 +22,21 @@ def test_job_requires_id():
             job_description="Missing ID",
             url="https://example.com"
         )
+
+def test_tailored_application_schema():
+    app = TailoredApplication(
+        job_id="j1",
+        summary="Experienced SWE.",
+        skills_to_highlight=["Python", "Go"],
+        tailored_projects=[
+            TailoredProject(
+                title="TitanStore",
+                tech="Go, Docker",
+                date="Jan 2026 – Present",
+                bullets=["Built Raft consensus.", "Used gRPC."],
+            )
+        ],
+        q_and_a_responses={},
+    )
+    assert app.tailored_projects[0].title == "TitanStore"
+    assert len(app.tailored_projects[0].bullets) == 2
