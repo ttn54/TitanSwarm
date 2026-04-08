@@ -1,12 +1,12 @@
 import pytest
-from unittest.mock import patch, MagicMock
+import asyncio
+from unittest.mock import patch, AsyncMock
 from src.scrapers.worker import SourcingEngine
 from src.core.models import Job, JobStatus
 
+@pytest.mark.asyncio
 @patch("src.scrapers.worker.scrape_jobs")
-def test_sourcing_engine_fetches_and_validates_jobs(mock_scrape_jobs):
-    # Arrange
-    # Mocking the DataFrame returned by jobspy's scrape_jobs
+async def test_sourcing_engine_fetches_and_validates_jobs(mock_scrape_jobs):
     import pandas as pd
     mock_df = pd.DataFrame([{
         "id": "ind-123",
@@ -18,17 +18,16 @@ def test_sourcing_engine_fetches_and_validates_jobs(mock_scrape_jobs):
     }])
     mock_scrape_jobs.return_value = mock_df
 
-    mock_repo = MagicMock()
-    mock_repo.job_exists.return_value = False
-    
+    mock_repo = AsyncMock()
+    mock_repo.get_job.return_value = None  # No duplicate: job is new
+
     engine = SourcingEngine(repository=mock_repo, interval_hours=12)
 
-    # Act
-    engine.run_sweep(role="Software Engineer Intern", location="Vancouver, BC", results_wanted=1)
+    count = await engine.run_sweep(role="Software Engineer Intern", location="Vancouver, BC", results_wanted=1)
 
-    # Assert
+    assert count == 1
     assert mock_repo.save_job.call_count == 1
-    
+
     saved_arg = mock_repo.save_job.call_args[0][0]
     assert isinstance(saved_arg, Job)
     assert saved_arg.company == "Tech Corp"
@@ -36,9 +35,9 @@ def test_sourcing_engine_fetches_and_validates_jobs(mock_scrape_jobs):
     assert saved_arg.status == JobStatus.DISCOVERED
     assert saved_arg.url == "https://indeed.com/job/123"
 
+@pytest.mark.asyncio
 @patch("src.scrapers.worker.scrape_jobs")
-def test_sourcing_engine_skips_existing_jobs(mock_scrape_jobs):
-    # Arrange
+async def test_sourcing_engine_skips_existing_jobs(mock_scrape_jobs):
     import pandas as pd
     mock_df = pd.DataFrame([{
         "id": "ind-123",
@@ -50,17 +49,19 @@ def test_sourcing_engine_skips_existing_jobs(mock_scrape_jobs):
     }])
     mock_scrape_jobs.return_value = mock_df
 
-    mock_repo = MagicMock()
+    mock_repo = AsyncMock()
     # Simulate that the job already exists in the database
-    mock_repo.job_exists.return_value = True
-    
+    mock_repo.get_job.return_value = Job(
+        id="ind-123", role="Software Engineer Intern", company="Tech Corp",
+        job_description="old", url="https://indeed.com/job/123"
+    )
+
     engine = SourcingEngine(repository=mock_repo, interval_hours=12)
 
-    # Act
-    engine.run_sweep(role="Software Engineer", location="Vancouver", results_wanted=1)
+    count = await engine.run_sweep(role="Software Engineer", location="Vancouver", results_wanted=1)
 
-    # Assert
     # The repository should NOT save the job if it already exists
-    mock_repo.job_exists.assert_called_once_with("ind-123")
+    mock_repo.get_job.assert_called_once_with("ind-123")
     assert mock_repo.save_job.call_count == 0
+    assert count == 0
 
