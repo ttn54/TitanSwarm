@@ -32,6 +32,9 @@ class SourcingEngine:
         saved_count = 0
         for _, row in jobs_df.iterrows():
             job_id = str(row.get("id"))
+            if job_id == "None":
+                logger.warning("Skipping job with null ID from scraper.")
+                continue
 
             # Deduplication: check the repository via the standard interface
             existing = await self.repository.get_job(job_id)
@@ -43,12 +46,23 @@ class SourcingEngine:
             if pd.isna(description):
                 description = "Description not provided."
 
+            # Extract skills list from JobSpy 'skills' column (may be None or a list)
+            raw_skills = row.get("skills")
+            if raw_skills and not (isinstance(raw_skills, float) and pd.isna(raw_skills)):
+                if isinstance(raw_skills, list):
+                    required_skills = [str(s) for s in raw_skills if s]
+                else:
+                    required_skills = [s.strip() for s in str(raw_skills).split(",") if s.strip()]
+            else:
+                required_skills = []
+
             job = Job(
                 id=job_id,
                 company=str(row.get("company")),
                 role=str(row.get("title")),
                 status=JobStatus.DISCOVERED,
                 job_description=str(description),
+                required_skills=required_skills,
                 url=str(row.get("job_url"))
             )
 
