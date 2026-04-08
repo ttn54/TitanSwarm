@@ -6,3 +6,4 @@ docs/plans/
 ARCHITECTURE.md
 StrictAgent.agent.md
 example/real_scraped_data.json
+.env

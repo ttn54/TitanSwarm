@@ -56,9 +56,12 @@ class SourcingEngine:
             else:
                 required_skills = []
 
+            company_raw = row.get("company")
+            company = str(company_raw) if company_raw and not (isinstance(company_raw, float) and pd.isna(company_raw)) else "Unknown Company"
+
             job = Job(
                 id=job_id,
-                company=str(row.get("company")),
+                company=company,
                 role=str(row.get("title")),
                 status=JobStatus.DISCOVERED,
                 job_description=str(description),
