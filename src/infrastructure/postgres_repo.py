@@ -55,6 +55,8 @@ class UserProfileModel(Base):
     base_summary: Mapped[str] = mapped_column(Text, default="")
     skills_json: Mapped[str] = mapped_column(String, default="[]")
     experience_json: Mapped[str] = mapped_column(Text, default="[]")
+    pref_role: Mapped[str] = mapped_column(String, default="")
+    pref_location: Mapped[str] = mapped_column(String, default="")
 
     def to_pydantic(self) -> UserProfile:
         return UserProfile(
@@ -67,6 +69,8 @@ class UserProfileModel(Base):
             base_summary=self.base_summary,
             skills=json.loads(self.skills_json) if self.skills_json else [],
             experience=json.loads(self.experience_json) if self.experience_json else [],
+            pref_role=self.pref_role or "",
+            pref_location=self.pref_location or "",
         )
 
 
@@ -185,6 +189,8 @@ class PostgresRepository(JobRepository):
                 "base_summary": profile.base_summary,
                 "skills_json": json.dumps(profile.skills),
                 "experience_json": json.dumps(profile.experience),
+                "pref_role": profile.pref_role,
+                "pref_location": profile.pref_location,
             }
 
             if self.is_postgres:

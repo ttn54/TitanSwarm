@@ -12,6 +12,39 @@ from src.scrapers.worker import SourcingEngine
 from src.core.ledger import LedgerManager
 from src.core.ai import AITailor
 from src.core.pdf_generator import PDFGenerator
+from typing import List, Optional
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PURE HELPER FUNCTIONS (importable for testing)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def filter_jobs(jobs: List[Job], chip: Optional[str]) -> List[Job]:
+    """Filter a list of jobs based on the selected filter chip."""
+    if not chip or chip == "All":
+        return jobs
+    result = []
+    for job in jobs:
+        text = (job.role + " " + job.job_description).lower()
+        if chip == "Remote" and "remote" in text:
+            result.append(job)
+        elif chip == "Internship" and "intern" in text:
+            result.append(job)
+        elif chip == "Full-time" and ("full-time" in text or "full time" in text):
+            result.append(job)
+        elif chip == "Co-op" and ("co-op" in text or "coop" in text):
+            result.append(job)
+    return result
+
+
+def profile_completion(pf: UserProfile) -> float:
+    """Return 0.0–1.0 profile completion ratio (6 fields)."""
+    filled = sum([
+        bool(pf.name), bool(pf.email), bool(pf.github),
+        bool(pf.skills), bool(pf.base_summary), bool(pf.website),
+    ])
+    return filled / 6
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -438,10 +471,12 @@ if "_pf_name" not in st.session_state:
     st.session_state["_pf_skills"]  = ", ".join(_pf0.skills)
 
 if "pref_role" not in st.session_state:
-    st.session_state.pref_role = "Software Engineer"
+    _pf_prefs = st.session_state.profile
+    st.session_state.pref_role = _pf_prefs.pref_role or "Software Engineer"
 
 if "pref_location" not in st.session_state:
-    st.session_state.pref_location = "Remote"
+    _pf_prefs = st.session_state.profile
+    st.session_state.pref_location = _pf_prefs.pref_location or "Remote"
 
 if "kanban_page" not in st.session_state:
     st.session_state.kanban_page = 0
@@ -480,6 +515,7 @@ with st.sidebar:
     n_pending    = len(run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
     n_submitted  = len(run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED)))
     n_discovered = len(run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)))
+    n_interview  = len(run_async(repo.get_jobs_by_status(JobStatus.INTERVIEW)))
 
     st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
     st.markdown('<div class="nav-section-label">Menu</div>', unsafe_allow_html=True)
@@ -505,15 +541,15 @@ with st.sidebar:
         <span style="color:#475569;">Pending Review</span>
         <span style="float:right;color:#fbbf24;font-weight:700;">{n_pending}</span><br>
         <span style="color:#475569;">Applied</span>
-        <span style="float:right;color:#34d399;font-weight:700;">{n_submitted}</span>
+        <span style="float:right;color:#34d399;font-weight:700;">{n_submitted}</span><br>
+        <span style="color:#475569;">Interview</span>
+        <span style="float:right;color:#3b82f6;font-weight:700;">{n_interview}</span>
     </div>""", unsafe_allow_html=True)
 
     st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
 
     # Profile completion score
-    pf = profile
-    filled = sum([bool(pf.name), bool(pf.email), bool(pf.github), bool(pf.skills), bool(pf.base_summary)])
-    pct = filled / 5
+    pct = profile_completion(profile)
     st.markdown(f'<div style="font-size:0.72rem;color:#475569;font-weight:600;margin-bottom:4px;">PROFILE {int(pct*100)}%</div>', unsafe_allow_html=True)
     st.progress(pct)
 
@@ -582,20 +618,18 @@ if nav == "Job Feed":
         st.toast(f"{len(new_jobs)} new opportunities added!", icon="⚡")
         st.rerun()
 
-    # ── Filter chips (visual only — functional filter below) ──
-    st.markdown("""
-    <div class="chip-row">
-        <span class="chip active">All</span>
-        <span class="chip">Remote</span>
-        <span class="chip">Internship</span>
-        <span class="chip">Full-time</span>
-        <span class="chip">Co-op</span>
-        <span class="chip">< 50 employees</span>
-    </div>""", unsafe_allow_html=True)
+    # ── Filter chips ──
+    selected_chip = st.pills(
+        "Filter",
+        options=["All", "Remote", "Internship", "Full-time", "Co-op"],
+        default="All",
+        label_visibility="collapsed",
+    )
 
     # ── Job feed ──
-    all_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)) +
+    _raw_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)) +
                 run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
+    all_jobs = filter_jobs(_raw_jobs, selected_chip)
 
     if not all_jobs:
         st.markdown("""
@@ -812,9 +846,31 @@ elif nav == "My Applications":
                         </div>""", unsafe_allow_html=True)
 
                     if lane_name == "Pending Review":
-                        for job in jobs[:3]:
-                            if st.button(f"✅ Submit {job.company[:12]}", key=f"kanban_sub_{job.id}", use_container_width=True):
-                                run_async(repo.update_status(job.id, JobStatus.SUBMITTED))
+                        for job in jobs[:5]:
+                            bc1, bc2 = st.columns(2)
+                            with bc1:
+                                if st.button(f"✅ Submit", key=f"kanban_sub_{job.id}", use_container_width=True):
+                                    run_async(repo.update_status(job.id, JobStatus.SUBMITTED))
+                                    st.rerun()
+                            with bc2:
+                                if st.button(f"✗ Reject", key=f"kanban_rej_pr_{job.id}", use_container_width=True):
+                                    run_async(repo.update_status(job.id, JobStatus.REJECTED))
+                                    st.rerun()
+                    elif lane_name == "Applied":
+                        for job in jobs[:5]:
+                            bc1, bc2 = st.columns(2)
+                            with bc1:
+                                if st.button(f"🎤 Interview", key=f"kanban_int_{job.id}", use_container_width=True):
+                                    run_async(repo.update_status(job.id, JobStatus.INTERVIEW))
+                                    st.rerun()
+                            with bc2:
+                                if st.button(f"✗ Reject", key=f"kanban_rej_ap_{job.id}", use_container_width=True):
+                                    run_async(repo.update_status(job.id, JobStatus.REJECTED))
+                                    st.rerun()
+                    elif lane_name == "Interview":
+                        for job in jobs[:5]:
+                            if st.button(f"✗ Reject", key=f"kanban_rej_iv_{job.id}", use_container_width=True):
+                                run_async(repo.update_status(job.id, JobStatus.REJECTED))
                                 st.rerun()
 
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -870,9 +926,7 @@ elif nav == "Preferences":
     st.markdown('<div class="main-subheader">Configure your target parameters and personal profile. The RAG engine uses this to tailor every application.</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    pf = profile
-    filled = sum([bool(pf.name), bool(pf.email), bool(pf.github), bool(pf.skills), bool(pf.base_summary)])
-    pct = filled / 5
+    pct = profile_completion(profile)
     st.markdown(f'<div style="font-size:0.82rem;font-weight:600;color:#374151;margin-bottom:4px;">Profile Completion · {int(pct*100)}%</div>', unsafe_allow_html=True)
     st.progress(pct)
     st.markdown("<br>", unsafe_allow_html=True)
@@ -891,6 +945,7 @@ elif nav == "Preferences":
             with a2:
                 st.text_input("GitHub",   key="_pf_github",   placeholder="github.com/janedoe")
                 st.text_input("LinkedIn", key="_pf_linkedin", placeholder="linkedin.com/in/janedoe")
+                st.text_input("Website",  key="_pf_website",  placeholder="yoursite.com")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -921,6 +976,8 @@ elif nav == "Preferences":
                 website=st.session_state.get("_pf_website", ""),
                 base_summary=st.session_state.get("_pf_summary", ""),
                 skills=[s.strip() for s in st.session_state.get("_pf_skills", "").split(",") if s.strip()],
+                pref_role=st.session_state.get("pref_role", ""),
+                pref_location=st.session_state.get("pref_location", ""),
             )
             st.session_state.profile = _saved_profile
             run_async(repo.save_profile(_saved_profile))
@@ -961,6 +1018,14 @@ elif nav == "Preferences":
             if st.button("Save Preferences", type="primary", use_container_width=True):
                 st.session_state.pref_role     = pref_role
                 st.session_state.pref_location = pref_loc
+                # Persist to DB via profile
+                _cur_pf = st.session_state.profile
+                _saved_pf = _cur_pf.model_copy(update={
+                    "pref_role": pref_role,
+                    "pref_location": pref_loc,
+                })
+                st.session_state.profile = _saved_pf
+                run_async(repo.save_profile(_saved_pf))
                 st.toast("Preferences saved!", icon="✅")
                 st.rerun()
 
@@ -1007,6 +1072,8 @@ elif nav == "Preferences":
                             github=new_github, linkedin=new_linkedin,
                             base_summary=pf_cur.base_summary,
                             skills=pf_cur.skills,
+                            pref_role=pf_cur.pref_role,
+                            pref_location=pf_cur.pref_location,
                         )
                         st.session_state.profile = _upload_profile
                         run_async(repo.save_profile(_upload_profile))

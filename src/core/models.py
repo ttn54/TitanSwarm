@@ -55,3 +55,5 @@ class UserProfile(BaseModel):
     base_summary: str = ""
     skills: list[str] = Field(default_factory=list)
     experience: list[dict] = Field(default_factory=list)
+    pref_role: str = ""
+    pref_location: str = ""
