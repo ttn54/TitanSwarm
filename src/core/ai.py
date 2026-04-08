@@ -38,14 +38,13 @@ def _parse_ledger_as_resume(ledger_path: str) -> str:
     return content.strip()
 
 
-async def _gemini_call_with_retry(loop, client, model: str, contents, config, max_retries: int = 3):
+async def _gemini_call_with_retry(loop, client, model: str, contents, config, max_retries: int = 5):
     """
     Call the Gemini API with exponential backoff on 503 (overloaded) errors.
-    Waits 5s, 10s, 20s before giving up.
+    Waits 8s → 16s → 32s → 64s before giving up.
     """
-    import time
     from google.genai.errors import ServerError
-    delay = 5
+    delay = 8
     for attempt in range(max_retries):
         try:
             return await loop.run_in_executor(
@@ -57,7 +56,7 @@ async def _gemini_call_with_retry(loop, client, model: str, contents, config, ma
         except ServerError as e:
             if e.status_code == 503 and attempt < max_retries - 1:
                 await asyncio.sleep(delay)
-                delay *= 2
+                delay = min(delay * 2, 64)
                 continue
             raise
 
@@ -145,7 +144,7 @@ class AITailor:
         loop = asyncio.get_event_loop()
         response = await _gemini_call_with_retry(
             loop, self._gemini_client,
-            model="gemini-2.0-flash-lite",
+            model="gemini-2.0-flash-lite-001",
             contents=full_prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -245,7 +244,7 @@ class AITailor:
             loop = asyncio.get_event_loop()
             response = await _gemini_call_with_retry(
                 loop, self._gemini_client,
-                model="gemini-2.0-flash-lite",
+                model="gemini-2.0-flash-lite-001",
                 contents=prompt,
                 config=types.GenerateContentConfig(temperature=0.3),
             )

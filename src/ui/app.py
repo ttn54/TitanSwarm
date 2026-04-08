@@ -761,7 +761,7 @@ if nav == "Job Feed":
                             )
                             st.rerun()
                         else:
-                            with st.spinner(f"Tailoring resume for {job.company}…"):
+                            with st.spinner(f"Tailoring resume for {job.company}… (may retry if Gemini is busy)"):
                                 try:
                                     result: TailoredApplication = run_async(tailor.tailor_application(job))
                                     _ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
@@ -857,7 +857,7 @@ if nav == "Job Feed":
                                     st.session_state[_cl_err_key] = "AI engine not configured."
                                     st.rerun()
                                 else:
-                                    with st.spinner("Generating cover letter…"):
+                                    with st.spinner("Generating cover letter… (may retry if Gemini is busy)"):
                                         try:
                                             from src.core.models import CoverLetterResult
                                             _cl_result = run_async(tailor.generate_cover_letter(job))
