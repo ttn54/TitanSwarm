@@ -57,3 +57,10 @@ class UserProfile(BaseModel):
     experience: list[dict] = Field(default_factory=list)
     pref_role: str = ""
     pref_location: str = ""
+
+class CoverLetterResult(BaseModel):
+    body: str = Field(..., description="The letter body paragraphs only — no header, no date, no signature block.")
+    company_address: str | None = Field(
+        default=None,
+        description="Recipient street address extracted verbatim from the JD, or null if not present.",
+    )

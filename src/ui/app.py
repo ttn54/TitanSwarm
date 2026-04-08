@@ -847,18 +847,40 @@ if nav == "Job Feed":
                                 else:
                                     with st.spinner("Generating cover letter…"):
                                         try:
-                                            _cl_text = run_async(tailor.generate_cover_letter(job))
-                                            st.session_state[f"cl_{job.id}"] = _cl_text
+                                            from src.core.models import CoverLetterResult
+                                            _cl_result = run_async(tailor.generate_cover_letter(job))
+                                            st.session_state[f"cl_{job.id}"] = _cl_result
+                                            # Generate PDF immediately
+                                            _cl_output = f"output/cover_letter_{job.id[:8]}.pdf"
+                                            _cl_pdf = run_async(pdf_gen.generate_cover_letter_pdf(
+                                                profile=profile,
+                                                company=job.company,
+                                                role=job.role,
+                                                cover_letter=_cl_result,
+                                                output_path=_cl_output,
+                                            ))
+                                            st.session_state[f"cl_pdf_{job.id}"] = _cl_pdf
+                                            # Persist body text to DB
                                             run_async(repo.save_tailored_result(
                                                 job.id,
                                                 st.session_state.get(f"qa_{job.id}", "{}"),
                                                 st.session_state[f"pdf_{job.id}"],
-                                                cover_letter=_cl_text,
+                                                cover_letter=_cl_result.body,
                                             ))
                                             st.rerun()
                                         except Exception as e:
                                             st.session_state[_cl_err_key] = f"Cover letter failed: {e}"
                                             st.rerun()
+                        # PDF download button — shown once cover letter exists
+                        if f"cl_pdf_{job.id}" in st.session_state:
+                            st.download_button(
+                                label="⬇️ Download Cover Letter PDF",
+                                data=st.session_state[f"cl_pdf_{job.id}"],
+                                file_name=f"cover_letter_{job.company.replace(' ', '_')}.pdf",
+                                mime="application/pdf",
+                                key=f"cl_dl_{job.id}",
+                                use_container_width=True,
+                            )
 
                 with st.expander("View full description, Q&A & Cover Letter"):
                     st.write(job.job_description)
@@ -875,9 +897,12 @@ if nav == "Job Feed":
                     if f"cl_{job.id}" in st.session_state:
                         st.markdown("---")
                         st.markdown("**✉️ Cover Letter**")
+                        _cl_body = st.session_state[f"cl_{job.id}"]
+                        # Handle both CoverLetterResult object and legacy plain strings
+                        _cl_display = _cl_body.body if hasattr(_cl_body, "body") else _cl_body
                         st.text_area(
-                            "Cover letter text (copy from here)",
-                            value=st.session_state[f"cl_{job.id}"],
+                            "Cover letter body (copy from here)",
+                            value=_cl_display,
                             height=250,
                             key=f"cl_display_{job.id}",
                         )

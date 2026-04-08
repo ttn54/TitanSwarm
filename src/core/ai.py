@@ -1,7 +1,7 @@
 import os
 import re
 import asyncio
-from src.core.models import Job, TailoredApplication, TailoredProject, TailoredExperience
+from src.core.models import Job, TailoredApplication, TailoredProject, TailoredExperience, CoverLetterResult
 from src.core.ledger import LedgerManager
 
 
@@ -233,8 +233,8 @@ class AITailor:
             )
             return completion.choices[0].message.content.strip()
 
-    async def generate_cover_letter(self, job: Job) -> str:
-        """Generate a 3-paragraph cover letter for a job posting."""
+    async def generate_cover_letter(self, job: Job) -> CoverLetterResult:
+        """Generate a formal cover letter, returning body text + optional address extracted from JD."""
         resume_text = _parse_ledger_as_resume(self.ledger.ledger_path)
         if not resume_text:
             try:
@@ -248,20 +248,34 @@ class AITailor:
             "IRON RULE — NO HALLUCINATIONS: Every claim must be directly traceable "
             "to the CANDIDATE'S RESUME below. Do NOT invent projects, technologies, "
             "companies, dates, or metrics.\n\n"
-            "Write a professional 3-paragraph cover letter:\n"
+            "Write a professional 3-paragraph cover letter body:\n"
             "1. Opening: Why you're excited about THIS specific role and company.\n"
             "2. Body: 2-3 concrete examples from the resume that directly match "
             "the job requirements. Reference specific projects and technologies.\n"
             "3. Closing: Enthusiasm + call to action.\n\n"
             "RULES:\n"
-            "- Keep it under 300 words\n"
+            "- Keep the body under 300 words\n"
             "- Use a confident, professional tone — not robotic\n"
-            "- Do NOT include a header, date, or address block — just the letter body\n"
-            "- Do NOT start with 'I am writing to apply' — be more engaging\n\n"
+            "- Do NOT start with 'I am writing to apply' — be more engaging\n"
+            "- Do NOT include a salutation line (e.g. 'Dear Hiring Manager') — just the paragraphs\n\n"
+            "ALSO: Scan the job description for a company street address "
+            "(e.g. '1055 Dunsmuir St #1400, Vancouver, BC V7X 1K8'). "
+            "If an address is present verbatim in the JD, include it in company_address. "
+            "If no address is present, set company_address to null.\n\n"
+            "Respond with ONLY valid JSON — no markdown fences:\n"
+            '{\n'
+            '  "body": "<3 paragraphs of letter body, newline-separated>",\n'
+            '  "company_address": "<street address from JD verbatim, or null>"\n'
+            '}\n\n'
             f"CANDIDATE'S RESUME:\n{resume_text}\n\n"
             f"TARGET ROLE: {job.role} at {job.company}\n\n"
-            f"JOB DESCRIPTION:\n{job.job_description}\n\n"
-            "Write the cover letter now:"
+            f"JOB DESCRIPTION:\n{job.job_description}"
         )
 
-        return await self._call_llm_text(prompt)
+        raw = await self._call_llm_text(prompt)
+
+        # Strip accidental markdown fences before parsing
+        raw = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw.strip())
+
+        return CoverLetterResult.model_validate_json(raw)
