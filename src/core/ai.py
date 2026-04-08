@@ -1,7 +1,7 @@
 import os
 import re
 import asyncio
-from src.core.models import Job, TailoredApplication, TailoredProject
+from src.core.models import Job, TailoredApplication, TailoredProject, TailoredExperience
 from src.core.ledger import LedgerManager
 
 
@@ -85,14 +85,28 @@ class AITailor:
         json_schema = (
             '{\n'
             '  "job_id": "<string>",\n'
-            '  "summary": "<2-sentence professional summary for this specific role>",\n'
-            '  "skills_to_highlight": ["skill1", "skill2", ...],\n'
+            '  "skills_to_highlight": {\n'
+            '    "Languages": ["skill1", "skill2"],\n'
+            '    "Backend & Systems": ["skill3"]\n'
+            '    // Only include categories with skills relevant to this JD. Omit irrelevant ones entirely.\n'
+            '  },\n'
             '  "tailored_projects": [\n'
             '    {\n'
             '      "title": "<project name from resume>",\n'
             '      "tech": "<tech stack>",\n'
             '      "date": "<date range>",\n'
-            '      "bullets": ["<rewritten bullet 1>", "<rewritten bullet 2>"]\n'
+            '      "project_type": "<Personal Project or Collaborative Project>",\n'
+            '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>"]\n'
+            '    }\n'
+            '  ],\n'
+            '  "tailored_experience": [\n'
+            '    {\n'
+            '      "title": "<job title from resume>",\n'
+            '      "company": "<company name from resume>",\n'
+            '      "start_date": "<start date>",\n'
+            '      "end_date": "<end date>",\n'
+            '      "location": "<location>",\n'
+            '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>"]\n'
             '    }\n'
             '  ],\n'
             '  "q_and_a_responses": {"<question>": "<answer>"}\n'
@@ -141,19 +155,32 @@ class AITailor:
             except RuntimeError:
                 resume_text = "No resume facts available."
 
-        # 2. System prompt — strict hallucination guard
+        # 2. System prompt — strict hallucination guard + XYZ format + keyword injection
         system_prompt = (
             "You are an elite Resume Tailor and ATS Optimizer for software engineering roles.\n\n"
             "IRON RULE — NO HALLUCINATIONS: You are ABSOLUTELY FORBIDDEN from inventing any project, "
             "tool, company, date, GPA, metric, or technology that does not appear verbatim in the "
             "CANDIDATE'S RESUME below. Every claim must be traceable to the resume text.\n\n"
+            "BULLET FORMAT — XYZ RULE (mandatory for every bullet):\n"
+            "Structure every bullet as: 'Accomplished [X] by doing [Y], resulting in [Z].'\n"
+            "Front-load the impact. Lead with the outcome or scale, not the action.\n"
+            "Example BAD:  'Engineered a WAL with fsync durability.'\n"
+            "Example GOOD: 'Eliminated data loss risk by engineering a binary WAL with strict fsync "
+            "durability and atomic snapshots, ensuring zero corruption across 17 integration tests.'\n\n"
+            "ATS KEYWORD INJECTION RULE:\n"
+            "First, extract the top 8-10 exact required phrases from the job description "
+            "(e.g. 'CI/CD pipelines', 'distributed systems', 'RESTful APIs'). "
+            "You MUST embed at least 4 of these exact phrases verbatim somewhere in the bullets. "
+            "This is critical for passing ATS screening.\n\n"
             "YOUR JOB:\n"
-            "1. Read the full job description carefully.\n"
-            "2. Identify which of the candidate's EXISTING projects and skills best match the JD.\n"
-            "3. REWRITE the existing project bullets to mirror the JD's language and keyword priorities "
-            "— while keeping all facts 100% accurate.\n"
-            "4. Do NOT add projects or bullets that don't exist in the resume.\n"
-            "5. Do NOT change dates, company names, or GPAs.\n\n"
+            "1. For skills_to_highlight: use ONLY category names from the resume. "
+            "Omit entire categories that have no relevance to this JD.\n"
+            "2. Rewrite ALL project bullets in XYZ format with ATS keywords injected.\n"
+            "3. Rewrite ALL work experience bullets in XYZ format with ATS keywords injected. "
+            "Even non-technical jobs (e.g. restaurant) can demonstrate work ethic, "
+            "cross-functional collaboration, and stakeholder management — rephrase using "
+            "the JD's language where it honestly applies.\n"
+            "4. Do NOT change titles, companies, dates, tech stacks, GPAs, or project types.\n\n"
             f"CANDIDATE'S RESUME:\n{resume_text}"
         )
 
@@ -166,11 +193,15 @@ class AITailor:
             f"TARGET ROLE: {job.role} at {job.company}\n\n"
             f"FULL JOB DESCRIPTION:\n{job.job_description}\n\n"
             f"TASKS:\n"
-            f"1. Write a 2-sentence summary tailored to this specific role.\n"
-            f"2. List the 8-10 skills from the resume most relevant to this JD.\n"
-            f"3. For each project in the resume, rewrite its bullets to emphasize keywords "
-            f"from this JD. Keep 2-3 bullets per project. Preserve project titles, tech, dates exactly.\n"
-            f"4. Answer these application questions (if any):\n{questions_str}\n\n"
+            f"1. Extract the top 8-10 exact required phrases from the JD above. "
+            f"Embed at least 4 verbatim into the bullets below.\n"
+            f"2. From the resume skills section, select ONLY categories/skills relevant to this JD. "
+            f"Omit irrelevant categories entirely.\n"
+            f"3. Rewrite every project bullet in XYZ format (impact first, action second, metric third). "
+            f"Preserve title, tech, date, project_type exactly.\n"
+            f"4. Rewrite every work experience bullet in XYZ format using JD language. "
+            f"Preserve title, company, dates, location exactly.\n"
+            f"5. Answer these application questions (if any):\n{questions_str}\n\n"
             f"job_id to use in output: {job.id}"
         )
 

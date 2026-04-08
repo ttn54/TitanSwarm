@@ -86,16 +86,14 @@
     {{ parts | join(' &nbsp;|&nbsp; ') }}
 </div>
 
-<!-- ── SUMMARY ───────────────────────────────────────────── -->
-{% if ai_data.summary %}
-<h2>Summary</h2>
-<div class="summary">{{ ai_data.summary }}</div>
-{% endif %}
-
 <!-- ── TECHNICAL SKILLS ──────────────────────────────────── -->
 {% if ai_data.skills_to_highlight %}
 <h2>Technical Skills</h2>
-<div class="skills-line">{{ ai_data.skills_to_highlight | join(' &nbsp;&middot;&nbsp; ') }}</div>
+{% for category, skill_list in ai_data.skills_to_highlight.items() %}
+{% if skill_list %}
+<div class="skills-line"><strong>{{ category }}:</strong> {{ skill_list | join(', ') }}</div>
+{% endif %}
+{% endfor %}
 {% endif %}
 
 <!-- ── TECHNICAL PROJECTS ────────────────────────────────── -->
@@ -107,7 +105,7 @@
         <span class="entry-title">{{ proj.title }}</span>
         <span class="entry-date">{{ proj.date }}</span>
     </div>
-    <div class="entry-sub">Personal Project &nbsp;&middot;&nbsp; {{ proj.tech }}</div>
+    <div class="entry-sub">{{ proj.project_type }} &nbsp;&middot;&nbsp; {{ proj.tech }}</div>
     <ul>
         {% for b in proj.bullets %}<li>{{ b }}</li>{% endfor %}
     </ul>
@@ -136,9 +134,9 @@
 {% endif %}
 
 <!-- ── WORK EXPERIENCE ───────────────────────────────────── -->
-{% if ledger.experience %}
+{% if ai_data.tailored_experience %}
 <h2>Work Experience</h2>
-{% for job in ledger.experience %}
+{% for job in ai_data.tailored_experience %}
 <div class="entry">
     <div class="row">
         <span class="entry-title">{{ job.title }}{% if job.company %} &nbsp;&middot;&nbsp; {{ job.company }}{% endif %}</span>

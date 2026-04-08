@@ -1,7 +1,7 @@
 import pytest
 import os
 from unittest.mock import AsyncMock, patch, MagicMock
-from src.core.models import Job, TailoredApplication, TailoredProject
+from src.core.models import Job, TailoredApplication, TailoredProject, TailoredExperience
 from src.core.pdf_generator import PDFGenerator
 
 @pytest.fixture
@@ -30,14 +30,27 @@ def mock_ledger():
 def mock_ai_data():
     return TailoredApplication(
         job_id="test_job_123",
-        summary="Experienced engineer with Python and Go skills.",
-        skills_to_highlight=["Python", "Go", "FastAPI"],
+        skills_to_highlight={
+            "Languages": ["Python", "Go"],
+            "Backend & Systems": ["FastAPI"],
+        },
         tailored_projects=[
             TailoredProject(
                 title="TitanStore",
                 tech="Go, Docker",
                 date="Jan 2026 – Present",
+                project_type="Personal Project",
                 bullets=["Built Raft consensus.", "Used gRPC."],
+            )
+        ],
+        tailored_experience=[
+            TailoredExperience(
+                title="Server",
+                company="Pho Goodness Restaurant",
+                start_date="Jan 2024",
+                end_date="Present",
+                location="Burnaby, BC",
+                bullets=["Maintained 3.74 GPA while working 20+ hrs/week."],
             )
         ],
         q_and_a_responses={"Will you require sponsorship?": "No"},

@@ -1,7 +1,7 @@
 import pytest
 import os
 from unittest.mock import patch, AsyncMock, MagicMock
-from src.core.models import Job, JobStatus, TailoredApplication, TailoredProject
+from src.core.models import Job, JobStatus, TailoredApplication, TailoredProject, TailoredExperience
 from src.core.ai import AITailor
 from src.core.ledger import LedgerManager
 
@@ -39,17 +39,30 @@ async def test_ai_tailor_returns_structured_output(sample_job):
 
         mock_response = TailoredApplication(
             job_id="job_999",
-            summary="A driven SWE intern with Python and distributed systems experience.",
-            skills_to_highlight=["Python", "Go", "Distributed Systems", "FAISS"],
+            skills_to_highlight={
+                "Languages": ["Python", "Go"],
+                "Backend & Systems": ["Distributed Systems", "FAISS"],
+            },
             tailored_projects=[
                 TailoredProject(
                     title="TitanStore",
                     tech="Go, SQL, Docker",
                     date="Jan 2026 – Present",
+                    project_type="Personal Project",
                     bullets=[
                         "Built distributed KV store in Go using Raft consensus.",
                         "Applied TDD with go test -race for thread safety.",
                     ]
+                )
+            ],
+            tailored_experience=[
+                TailoredExperience(
+                    title="Server",
+                    company="Pho Goodness Restaurant",
+                    start_date="Jan 2024",
+                    end_date="Present",
+                    location="Burnaby, BC",
+                    bullets=["Demonstrated high work ethic maintaining 3.74 GPA while working 20+ hrs/week."],
                 )
             ],
             q_and_a_responses={"Why do you want to work here?": "I love distributed systems."}
@@ -64,6 +77,10 @@ async def test_ai_tailor_returns_structured_output(sample_job):
             assert result.job_id == "job_999"
             assert len(result.tailored_projects) == 1
             assert result.tailored_projects[0].title == "TitanStore"
+            assert result.tailored_projects[0].project_type == "Personal Project"
+            assert isinstance(result.skills_to_highlight, dict)
             assert len(result.skills_to_highlight) >= 1
-            assert result.summary != ""
+            assert len(result.tailored_experience) == 1
+            assert result.tailored_experience[0].title == "Server"
+            assert "summary" not in TailoredApplication.model_fields
             mock_call.assert_called_once()
