@@ -62,9 +62,9 @@ class MockUIRepository(JobRepository):
     async def get_profile(self) -> Optional[UserProfile]:
         return self._profile
 
-    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes) -> bool:
-        self._tailored[job_id] = (ai_json, pdf_bytes)
+    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes, cover_letter: str | None = None) -> bool:
+        self._tailored[job_id] = (ai_json, pdf_bytes, cover_letter)
         return True
 
-    async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes]]:
+    async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes, str | None]]:
         return self._tailored.get(job_id)

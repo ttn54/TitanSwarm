@@ -132,9 +132,10 @@ class TestTailoredResultPersistence:
 
         result = await repo.get_tailored_result("t1")
         assert result is not None
-        loaded_json, loaded_pdf = result
+        loaded_json, loaded_pdf, loaded_cl = result
         assert loaded_json == ai_json
         assert loaded_pdf == pdf_data
+        assert loaded_cl is None
 
     @pytest.mark.asyncio
     async def test_get_tailored_result_returns_none_when_missing(self, repo):
@@ -147,7 +148,7 @@ class TestTailoredResultPersistence:
         await repo.save_tailored_result("t2", '{"v":2}', b"new")
 
         result = await repo.get_tailored_result("t2")
-        loaded_json, loaded_pdf = result
+        loaded_json, loaded_pdf, loaded_cl = result
         assert loaded_json == '{"v":2}'
         assert loaded_pdf == b"new"
 

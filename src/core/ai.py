@@ -208,3 +208,57 @@ class AITailor:
 
         return await self._call_llm(system_prompt, user_prompt)
 
+    async def _call_llm_text(self, prompt: str) -> str:
+        """Call the LLM and return raw text (not parsed JSON)."""
+        if self.provider == "gemini":
+            from google.genai import types
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self._gemini_client.models.generate_content(
+                    model="gemini-3.1-flash-lite-preview",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=0.3),
+                ),
+            )
+            return response.text.strip()
+        else:
+            completion = await self._openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                temperature=0.3,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return completion.choices[0].message.content.strip()
+
+    async def generate_cover_letter(self, job: Job) -> str:
+        """Generate a 3-paragraph cover letter for a job posting."""
+        resume_text = _parse_ledger_as_resume(self.ledger.ledger_path)
+        if not resume_text:
+            try:
+                chunks = self.ledger.search_facts(job.role, top_k=8)
+                resume_text = "\n".join(chunks)
+            except RuntimeError:
+                resume_text = "No resume facts available."
+
+        prompt = (
+            "You are an expert cover letter writer for software engineering roles.\n\n"
+            "IRON RULE — NO HALLUCINATIONS: Every claim must be directly traceable "
+            "to the CANDIDATE'S RESUME below. Do NOT invent projects, technologies, "
+            "companies, dates, or metrics.\n\n"
+            "Write a professional 3-paragraph cover letter:\n"
+            "1. Opening: Why you're excited about THIS specific role and company.\n"
+            "2. Body: 2-3 concrete examples from the resume that directly match "
+            "the job requirements. Reference specific projects and technologies.\n"
+            "3. Closing: Enthusiasm + call to action.\n\n"
+            "RULES:\n"
+            "- Keep it under 300 words\n"
+            "- Use a confident, professional tone — not robotic\n"
+            "- Do NOT include a header, date, or address block — just the letter body\n"
+            "- Do NOT start with 'I am writing to apply' — be more engaging\n\n"
+            f"CANDIDATE'S RESUME:\n{resume_text}\n\n"
+            f"TARGET ROLE: {job.role} at {job.company}\n\n"
+            f"JOB DESCRIPTION:\n{job.job_description}\n\n"
+            "Write the cover letter now:"
+        )
+
+        return await self._call_llm_text(prompt)

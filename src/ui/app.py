@@ -7,6 +7,7 @@ import time
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from src.core.models import Job, JobStatus, UserProfile, TailoredApplication
+from src.core.matching import compute_match_score
 from src.infrastructure.postgres_repo import PostgresRepository
 from src.scrapers.worker import SourcingEngine
 from src.core.ledger import LedgerManager
@@ -44,6 +45,14 @@ def profile_completion(pf: UserProfile) -> float:
         bool(pf.skills), bool(pf.base_summary), bool(pf.website),
     ])
     return filled / 6
+
+
+def search_jobs(jobs: List[Job], query: Optional[str]) -> List[Job]:
+    """Filter jobs by substring match on company or role."""
+    if not query:
+        return jobs
+    q = query.lower()
+    return [j for j in jobs if q in j.company.lower() or q in j.role.lower()]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -504,6 +513,18 @@ profile = st.session_state.profile
 tailor  = st.session_state.tailor
 pdf_gen = st.session_state.pdf_gen
 
+# Lazy-load sentence-transformer model for match scoring (cached across reruns)
+if "st_model" not in st.session_state:
+    from sentence_transformers import SentenceTransformer
+    st.session_state.st_model = SentenceTransformer("all-MiniLM-L6-v2")
+st_model = st.session_state.st_model
+
+# Cache resume text for match scoring (avoids re-reading file every rerun)
+if "resume_text_cache" not in st.session_state:
+    from src.core.ai import _parse_ledger_as_resume
+    _lp_match = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
+    st.session_state.resume_text_cache = _parse_ledger_as_resume(_lp_match)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
@@ -626,10 +647,40 @@ if nav == "Job Feed":
         label_visibility="collapsed",
     )
 
+    # ── Search & Sort bar ──
+    _search_col, _sort_col = st.columns([3, 1])
+    with _search_col:
+        _search_q = st.text_input(
+            "🔎 Search jobs",
+            placeholder="Filter by company or role…",
+            label_visibility="collapsed",
+        )
+    with _sort_col:
+        _sort_opt = st.selectbox(
+            "Sort",
+            ["Best Match", "Company A→Z", "Company Z→A"],
+            label_visibility="collapsed",
+        )
+
     # ── Job feed ──
     _raw_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)) +
                 run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
     all_jobs = filter_jobs(_raw_jobs, selected_chip)
+    all_jobs = search_jobs(all_jobs, _search_q)
+
+    # Compute match scores for sorting/display
+    _resume_cache = st.session_state.resume_text_cache
+    _match_scores: dict[str, int] = {}
+    for _j in all_jobs:
+        _match_scores[_j.id] = compute_match_score(_resume_cache, _j.job_description, st_model)
+
+    # Apply sort
+    if _sort_opt == "Best Match":
+        all_jobs.sort(key=lambda j: _match_scores.get(j.id, 0), reverse=True)
+    elif _sort_opt == "Company A→Z":
+        all_jobs.sort(key=lambda j: j.company.lower())
+    elif _sort_opt == "Company Z→A":
+        all_jobs.sort(key=lambda j: j.company.lower(), reverse=True)
 
     if not all_jobs:
         st.markdown("""
@@ -646,6 +697,9 @@ if nav == "Job Feed":
         for job in all_jobs:
             skills_html = "".join(f'<span class="skill-pill">{s}</span>' for s in (job.required_skills or [])[:5])
             desc = job.job_description[:180].rstrip() + "…"
+            _ms = _match_scores.get(job.id, 0)
+            _ms_color = "#22c55e" if _ms >= 70 else "#eab308" if _ms >= 40 else "#ef4444"
+            _ms_badge = f'<span style="background:{_ms_color};color:#fff;padding:2px 8px;border-radius:10px;font-size:0.72rem;font-weight:700;">{_ms}% match</span>'
 
             with st.container(border=True):
                 left, right = st.columns([5, 1])
@@ -658,6 +712,7 @@ if nav == "Job Feed":
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                                 <span class="jcard-company">{job.company}</span>
                                 {badge(job.status)}
+                                {_ms_badge}
                             </div>
                             <div class="jcard-role">{job.role}</div>
                             <div class="jcard-meta">
@@ -734,8 +789,10 @@ if nav == "Job Feed":
                     if f"pdf_{job.id}" not in st.session_state:
                         _db_result = run_async(repo.get_tailored_result(job.id))
                         if _db_result:
-                            _db_ai_json, _db_pdf = _db_result
+                            _db_ai_json, _db_pdf, _db_cl = _db_result
                             st.session_state[f"pdf_{job.id}"] = _db_pdf
+                            if _db_cl:
+                                st.session_state[f"cl_{job.id}"] = _db_cl
                             try:
                                 _db_ta = TailoredApplication.model_validate_json(_db_ai_json)
                                 st.session_state[f"qa_{job.id}"] = _db_ta.q_and_a_responses
@@ -768,7 +825,33 @@ if nav == "Job Feed":
                         run_async(repo.update_status(job.id, JobStatus.REJECTED))
                         st.rerun()
 
-                with st.expander("View full description & Q&A answers"):
+                    # Cover letter button — only show after resume is tailored
+                    if f"pdf_{job.id}" in st.session_state:
+                        _cl_err_key = f"cl_err_{job.id}"
+                        if _cl_err_key in st.session_state:
+                            st.error(st.session_state.pop(_cl_err_key))
+                        if f"cl_{job.id}" not in st.session_state:
+                            if st.button("✉️ Cover Letter", key=f"cl_{job.id}_btn", use_container_width=True):
+                                if tailor is None:
+                                    st.session_state[_cl_err_key] = "AI engine not configured."
+                                    st.rerun()
+                                else:
+                                    with st.spinner("Generating cover letter…"):
+                                        try:
+                                            _cl_text = run_async(tailor.generate_cover_letter(job))
+                                            st.session_state[f"cl_{job.id}"] = _cl_text
+                                            run_async(repo.save_tailored_result(
+                                                job.id,
+                                                st.session_state.get(f"qa_{job.id}", "{}"),
+                                                st.session_state[f"pdf_{job.id}"],
+                                                cover_letter=_cl_text,
+                                            ))
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.session_state[_cl_err_key] = f"Cover letter failed: {e}"
+                                            st.rerun()
+
+                with st.expander("View full description, Q&A & Cover Letter"):
                     st.write(job.job_description)
                     # Show AI-generated Q&A if tailoring has been run for this job
                     if f"qa_{job.id}" in st.session_state:
@@ -779,6 +862,16 @@ if nav == "Job Feed":
                             for question, answer in qa.items():
                                 st.markdown(f"**Q: {question}**")
                                 st.info(answer)
+                    # Show cover letter if generated
+                    if f"cl_{job.id}" in st.session_state:
+                        st.markdown("---")
+                        st.markdown("**✉️ Cover Letter**")
+                        st.text_area(
+                            "Cover letter text (copy from here)",
+                            value=st.session_state[f"cl_{job.id}"],
+                            height=250,
+                            key=f"cl_display_{job.id}",
+                        )
                     if st.button("✅ Mark as Applied", key=f"mark_{job.id}"):
                         run_async(repo.update_status(job.id, JobStatus.SUBMITTED))
                         st.toast(f"{job.company} marked as submitted!", icon="🎯")

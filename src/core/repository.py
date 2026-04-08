@@ -50,11 +50,11 @@ class JobRepository(ABC):
     # ── Tailored result persistence ──
 
     @abstractmethod
-    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes) -> bool:
-        """Saves AI tailoring output + generated PDF bytes for a job."""
+    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes, cover_letter: str | None = None) -> bool:
+        """Saves AI tailoring output + generated PDF bytes + optional cover letter for a job."""
         pass
 
     @abstractmethod
-    async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes]]:
-        """Returns (ai_json, pdf_bytes) for a job, or None if not yet tailored."""
+    async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes, str | None]]:
+        """Returns (ai_json, pdf_bytes, cover_letter) for a job, or None if not yet tailored."""
         pass

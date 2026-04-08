@@ -43,10 +43,10 @@ def test_valid_repository_implementation():
         async def get_profile(self) -> Optional[UserProfile]:
             return None
 
-        async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes) -> bool:
+        async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes, cover_letter: str | None = None) -> bool:
             return True
 
-        async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes]]:
+        async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes, str | None]]:
             return None
 
     repo = GoodRepo()

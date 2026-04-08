@@ -80,6 +80,7 @@ class TailoredResultModel(Base):
     job_id: Mapped[str] = mapped_column(String, primary_key=True)
     ai_json: Mapped[str] = mapped_column(Text)
     pdf_bytes: Mapped[bytes] = mapped_column(LargeBinary)
+    cover_letter_text: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
 
 class PostgresRepository(JobRepository):
@@ -228,13 +229,14 @@ class PostgresRepository(JobRepository):
 
     # ── Tailored result persistence ──
 
-    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes) -> bool:
-        """Saves AI tailoring output + generated PDF bytes for a job."""
+    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes, cover_letter: str | None = None) -> bool:
+        """Saves AI tailoring output + generated PDF bytes + optional cover letter for a job."""
         async with self.async_session() as session:
             stmt_params = {
                 "job_id": job_id,
                 "ai_json": ai_json,
                 "pdf_bytes": pdf_bytes,
+                "cover_letter_text": cover_letter,
             }
 
             if self.is_postgres:
@@ -259,13 +261,13 @@ class PostgresRepository(JobRepository):
                 await session.rollback()
                 return False
 
-    async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes]]:
-        """Returns (ai_json, pdf_bytes) for a job, or None if not yet tailored."""
+    async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes, str | None]]:
+        """Returns (ai_json, pdf_bytes, cover_letter) for a job, or None if not yet tailored."""
         async with self.async_session() as session:
             result = await session.execute(
                 select(TailoredResultModel).where(TailoredResultModel.job_id == job_id)
             )
             model = result.scalar_one_or_none()
             if model:
-                return (model.ai_json, model.pdf_bytes)
+                return (model.ai_json, model.pdf_bytes, model.cover_letter_text)
             return None
