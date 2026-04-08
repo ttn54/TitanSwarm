@@ -7,6 +7,7 @@ class JobStatus(str, Enum):
     PENDING_REVIEW = "PENDING_REVIEW"
     SUBMITTED = "SUBMITTED"
     REJECTED = "REJECTED"
+    INTERVIEW = "INTERVIEW"
     ERROR = "ERROR"
 
 class Job(BaseModel):
@@ -50,6 +51,7 @@ class UserProfile(BaseModel):
     phone: str = ""
     github: str = ""
     linkedin: str = ""
+    website: str = ""
     base_summary: str = ""
     skills: list[str] = Field(default_factory=list)
     experience: list[dict] = Field(default_factory=list)

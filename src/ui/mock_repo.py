@@ -1,6 +1,6 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from uuid import uuid4
-from src.core.models import Job, JobStatus
+from src.core.models import Job, JobStatus, UserProfile
 from src.core.repository import JobRepository
 
 class MockUIRepository(JobRepository):
@@ -10,6 +10,8 @@ class MockUIRepository(JobRepository):
     """
     def __init__(self):
         self.jobs = {}
+        self._profile: Optional[UserProfile] = None
+        self._tailored: dict[str, Tuple[str, bytes]] = {}
         self._seed_data()
 
     def _seed_data(self):
@@ -52,3 +54,17 @@ class MockUIRepository(JobRepository):
     
     async def count_all(self) -> int:
         return len(self.jobs)
+
+    async def save_profile(self, profile: UserProfile) -> bool:
+        self._profile = profile
+        return True
+
+    async def get_profile(self) -> Optional[UserProfile]:
+        return self._profile
+
+    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes) -> bool:
+        self._tailored[job_id] = (ai_json, pdf_bytes)
+        return True
+
+    async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes]]:
+        return self._tailored.get(job_id)

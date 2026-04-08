@@ -18,8 +18,8 @@ def test_incomplete_repository_implementation():
 
 def test_valid_repository_implementation():
     """Ensure a correctly implemented subclass can be instantiated."""
-    from src.core.models import JobStatus
-    from typing import List
+    from src.core.models import JobStatus, UserProfile
+    from typing import List, Optional, Tuple
 
     class GoodRepo(JobRepository):
         async def save_job(self, job: Job) -> bool:
@@ -36,6 +36,18 @@ def test_valid_repository_implementation():
 
         async def count_all(self) -> int:
             return 0
+
+        async def save_profile(self, profile: UserProfile) -> bool:
+            return True
+
+        async def get_profile(self) -> Optional[UserProfile]:
+            return None
+
+        async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes) -> bool:
+            return True
+
+        async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes]]:
+            return None
 
     repo = GoodRepo()
     assert isinstance(repo, JobRepository)

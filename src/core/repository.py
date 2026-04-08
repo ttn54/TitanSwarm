@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import List
-from src.core.models import Job, JobStatus
+from typing import List, Optional, Tuple
+from src.core.models import Job, JobStatus, UserProfile
 
 class JobRepository(ABC):
     """
     Abstract Base Class defining the Universal Remote Control for our storage layer.
     Any database we use (PostgreSQL, etc) must implement ALL of these methods.
     """
+
+    # ── Job CRUD ──
 
     @abstractmethod
     async def save_job(self, job: Job) -> bool:
@@ -31,4 +33,28 @@ class JobRepository(ABC):
     @abstractmethod
     async def count_all(self) -> int:
         """Returns the total count of all jobs in the repository."""
+        pass
+
+    # ── UserProfile persistence ──
+
+    @abstractmethod
+    async def save_profile(self, profile: UserProfile) -> bool:
+        """Saves (upserts) the user profile. Single-user system — one row."""
+        pass
+
+    @abstractmethod
+    async def get_profile(self) -> Optional[UserProfile]:
+        """Returns the saved profile, or None if none exists yet."""
+        pass
+
+    # ── Tailored result persistence ──
+
+    @abstractmethod
+    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes) -> bool:
+        """Saves AI tailoring output + generated PDF bytes for a job."""
+        pass
+
+    @abstractmethod
+    async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes]]:
+        """Returns (ai_json, pdf_bytes) for a job, or None if not yet tailored."""
         pass

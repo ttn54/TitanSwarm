@@ -217,7 +217,8 @@ def badge(status: JobStatus) -> str:
         JobStatus.SUBMITTED:      ("submitted", "Applied"),
         JobStatus.DISCOVERED:     ("new",       "New"),
         JobStatus.REJECTED:       ("rejected",  "Rejected"),
-        JobStatus.PROCESSING:     ("interview", "Interview"),
+        JobStatus.PROCESSING:     ("pending",   "Processing"),
+        JobStatus.INTERVIEW:      ("interview", "Interview"),
     }
     cls, label = m.get(status, ("new", status.value))
     return f'<span class="badge badge-{cls}">{label}</span>'
@@ -380,7 +381,8 @@ if "repo" not in st.session_state:
     st.session_state.repo = _r
 
 if "profile" not in st.session_state:
-    st.session_state.profile = UserProfile()
+    _db_profile = run_async(st.session_state.repo.get_profile())
+    st.session_state.profile = _db_profile if _db_profile else UserProfile()
 
 # Seed form display keys from the saved profile (once per session).
 # Using explicit session-state keys instead of value= ensures widgets always
@@ -431,7 +433,7 @@ if "_pf_name" not in st.session_state:
     st.session_state["_pf_phone"]   = _pf0.phone   or _ledger_phone
     st.session_state["_pf_github"]  = _pf0.github  or _ledger_github
     st.session_state["_pf_linkedin"]= _pf0.linkedin or _ledger_linkedin
-    st.session_state["_pf_website"] = _ledger_website
+    st.session_state["_pf_website"] = _pf0.website or _ledger_website
     st.session_state["_pf_summary"] = _pf0.base_summary
     st.session_state["_pf_skills"]  = ", ".join(_pf0.skills)
 
@@ -681,6 +683,10 @@ if nav == "Job Feed":
                                     st.session_state[f"pdf_{job.id}"] = pdf_bytes
                                     st.session_state[f"qa_{job.id}"]  = result.q_and_a_responses
                                     st.session_state[f"autodownload_{job.id}"] = True
+                                    # Persist tailored result to DB so it survives page refresh
+                                    run_async(repo.save_tailored_result(
+                                        job.id, result.model_dump_json(), pdf_bytes
+                                    ))
                                     run_async(repo.update_status(job.id, JobStatus.PENDING_REVIEW))
                                     st.toast(f"Resume for {job.company} is ready!", icon="✅")
                                     st.rerun()
@@ -690,6 +696,17 @@ if nav == "Job Feed":
                                     st.rerun()
 
                     # Show download button if PDF is already generated for this job
+                    # Load from DB if not in session state (page was refreshed)
+                    if f"pdf_{job.id}" not in st.session_state:
+                        _db_result = run_async(repo.get_tailored_result(job.id))
+                        if _db_result:
+                            _db_ai_json, _db_pdf = _db_result
+                            st.session_state[f"pdf_{job.id}"] = _db_pdf
+                            try:
+                                _db_ta = TailoredApplication.model_validate_json(_db_ai_json)
+                                st.session_state[f"qa_{job.id}"] = _db_ta.q_and_a_responses
+                            except Exception:
+                                pass
                     if f"pdf_{job.id}" in st.session_state:
                         import re as _re2
                         import base64 as _b64
@@ -746,7 +763,7 @@ elif nav == "My Applications":
     buckets = {
         "Pending Review": run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)),
         "Applied":        run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED)),
-        "Interview":      run_async(repo.get_jobs_by_status(JobStatus.PROCESSING)),
+        "Interview":      run_async(repo.get_jobs_by_status(JobStatus.INTERVIEW)),
         "Rejected":       run_async(repo.get_jobs_by_status(JobStatus.REJECTED)),
     }
     bucket_colors = {
@@ -821,7 +838,11 @@ elif nav == "My Applications":
                     </div>
                 </div>""", unsafe_allow_html=True)
             with rc2:
-                # Serve cached PDF if it was generated in Job Feed, otherwise disable
+                # Serve cached PDF — load from DB if not in session state
+                if f"pdf_{job.id}" not in st.session_state:
+                    _db_r = run_async(repo.get_tailored_result(job.id))
+                    if _db_r:
+                        st.session_state[f"pdf_{job.id}"] = _db_r[1]
                 _cached = st.session_state.get(f"pdf_{job.id}")
                 if _cached:
                     st.download_button("📄 PDF", data=_cached,
@@ -891,15 +912,18 @@ elif nav == "Preferences":
         st.markdown("<br>", unsafe_allow_html=True)
 
         if st.button("💾  Save Profile", type="primary"):
-            st.session_state.profile = UserProfile(
+            _saved_profile = UserProfile(
                 name=st.session_state.get("_pf_name", ""),
                 email=st.session_state.get("_pf_email", ""),
                 phone=st.session_state.get("_pf_phone", ""),
                 github=st.session_state.get("_pf_github", ""),
                 linkedin=st.session_state.get("_pf_linkedin", ""),
+                website=st.session_state.get("_pf_website", ""),
                 base_summary=st.session_state.get("_pf_summary", ""),
                 skills=[s.strip() for s in st.session_state.get("_pf_skills", "").split(",") if s.strip()],
             )
+            st.session_state.profile = _saved_profile
+            run_async(repo.save_profile(_saved_profile))
             st.toast("Profile saved!", icon="🔒")
             st.rerun()
 
@@ -978,12 +1002,14 @@ elif nav == "Preferences":
                             "_pf_linkedin": new_linkedin,
                         }
                         # Persist to profile for PDF generation
-                        st.session_state.profile = UserProfile(
+                        _upload_profile = UserProfile(
                             name=new_name, email=new_email, phone=new_phone,
                             github=new_github, linkedin=new_linkedin,
                             base_summary=pf_cur.base_summary,
                             skills=pf_cur.skills,
                         )
+                        st.session_state.profile = _upload_profile
+                        run_async(repo.save_profile(_upload_profile))
                         # ── Write to ledger (replace any previous import) ──────
                         ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
                         existing = open(ledger_path, encoding="utf-8").read()
