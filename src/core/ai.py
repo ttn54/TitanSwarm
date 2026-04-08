@@ -38,6 +38,30 @@ def _parse_ledger_as_resume(ledger_path: str) -> str:
     return content.strip()
 
 
+async def _gemini_call_with_retry(loop, client, model: str, contents, config, max_retries: int = 3):
+    """
+    Call the Gemini API with exponential backoff on 503 (overloaded) errors.
+    Waits 5s, 10s, 20s before giving up.
+    """
+    import time
+    from google.genai.errors import ServerError
+    delay = 5
+    for attempt in range(max_retries):
+        try:
+            return await loop.run_in_executor(
+                None,
+                lambda: client.models.generate_content(
+                    model=model, contents=contents, config=config,
+                ),
+            )
+        except ServerError as e:
+            if e.status_code == 503 and attempt < max_retries - 1:
+                await asyncio.sleep(delay)
+                delay *= 2
+                continue
+            raise
+
+
 class AITailor:
     """
     Provider-agnostic AI tailoring engine.
@@ -119,16 +143,14 @@ class AITailor:
         )
 
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self._gemini_client.models.generate_content(
-                model="gemini-3.1-flash-lite-preview",
-                contents=full_prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2,
-                ),
-            )
+        response = await _gemini_call_with_retry(
+            loop, self._gemini_client,
+            model="gemini-2.0-flash-lite",
+            contents=full_prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.2,
+            ),
         )
         return TailoredApplication.model_validate_json(response.text)
 
@@ -221,13 +243,11 @@ class AITailor:
         if self.provider == "gemini":
             from google.genai import types
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self._gemini_client.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview",
-                    contents=prompt,
-                    config=types.GenerateContentConfig(temperature=0.3),
-                ),
+            response = await _gemini_call_with_retry(
+                loop, self._gemini_client,
+                model="gemini-2.0-flash-lite",
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.3),
             )
             return response.text.strip()
         else:
