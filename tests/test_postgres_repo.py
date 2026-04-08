@@ -1,9 +1,10 @@
 import pytest
+import pytest_asyncio
 import asyncio
 from src.core.models import Job, JobStatus
 from src.infrastructure.postgres_repo import PostgresRepository # This does not exist yet
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def repo():
     # Use SQLite in-memory database for testing the repository logic
     repo = PostgresRepository("sqlite+aiosqlite:///:memory:")
@@ -16,11 +17,10 @@ async def test_save_and_get_job(repo):
     """Test saving a job to the repository and retrieving it."""
     job = Job(
         id="li-999",
-        title="Software Engineer Intern",
+        role="Software Engineer Intern",
         company="TechCorp",
-        location="San Francisco, CA",
-        description="Looking for an intern to build our distributed state machine.",
-        job_url="https://linkedin.com/jobs/999",
+        job_description="Looking for an intern to build our distributed state machine.",
+        url="https://linkedin.com/jobs/999",
         status=JobStatus.DISCOVERED
     )
     
@@ -32,23 +32,23 @@ async def test_save_and_get_job(repo):
     retrieved_job = await repo.get_job("li-999")
     assert retrieved_job is not None, "Repository failed to retrieve the saved job."
     assert retrieved_job.id == job.id
-    assert retrieved_job.title == job.title
+    assert retrieved_job.role == job.role
     assert retrieved_job.status == job.status
 
 @pytest.mark.asyncio
 async def test_get_jobs_by_status(repo):
     """Test retrieving multiple jobs filtered by their status for the Streamlit UI."""
     job1 = Job(
-        id="li-1", title="Role 1", company="Corp1", location="SF",
-        description="D1", job_url="url1", status=JobStatus.PENDING_REVIEW
+        id="li-1", role="Role 1", company="Corp1",
+        job_description="D1", url="url1", status=JobStatus.PENDING_REVIEW
     )
     job2 = Job(
-        id="li-2", title="Role 2", company="Corp2", location="NY",
-        description="D2", job_url="url2", status=JobStatus.DISCOVERED
+        id="li-2", role="Role 2", company="Corp2",
+        job_description="D2", url="url2", status=JobStatus.DISCOVERED
     )
     job3 = Job(
-        id="li-3", title="Role 3", company="Corp3", location="TX",
-        description="D3", job_url="url3", status=JobStatus.PENDING_REVIEW
+        id="li-3", role="Role 3", company="Corp3",
+        job_description="D3", url="url3", status=JobStatus.PENDING_REVIEW
     )
     
     await repo.save_job(job1)
