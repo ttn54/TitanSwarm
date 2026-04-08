@@ -96,7 +96,7 @@ class AITailor:
             '      "tech": "<tech stack>",\n'
             '      "date": "<date range>",\n'
             '      "project_type": "<Personal Project or Collaborative Project>",\n'
-            '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>"]\n'
+            '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>", "<XYZ bullet 3 — add if relevant>", "<XYZ bullet 4 — add if highly relevant>"]\n'
             '    }\n'
             '  ],\n'
             '  "tailored_experience": [\n'
@@ -177,6 +177,8 @@ class AITailor:
             "1. For skills_to_highlight: use ONLY category names from the resume. "
             "Omit entire categories that have no relevance to this JD.\n"
             "2. Rewrite ALL project bullets in XYZ format with ATS keywords injected.\n"
+            "   BULLET COUNT RULE: Give 4 bullets to projects whose tech/outcomes directly match the JD's "
+            "required skills. Give 2 bullets to projects that are only tangentially related. NEVER invent facts.\n"
             "3. Rewrite ALL work experience bullets in XYZ format with ATS keywords injected. "
             "Even non-technical jobs (e.g. restaurant) can demonstrate work ethic, "
             "cross-functional collaboration, and stakeholder management — rephrase using "
@@ -199,6 +201,7 @@ class AITailor:
             f"2. From the resume skills section, select ONLY categories/skills relevant to this JD. "
             f"Omit irrelevant categories entirely.\n"
             f"3. Rewrite every project bullet in XYZ format (impact first, action second, metric third). "
+            f"Give 4 bullets to the most JD-relevant projects, 2 to tangentially related ones. "
             f"Preserve title, tech, date, project_type exactly.\n"
             f"4. Rewrite every work experience bullet in XYZ format using JD language. "
             f"Preserve title, company, dates, location exactly.\n"

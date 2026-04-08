@@ -426,12 +426,12 @@ if "profile" not in st.session_state:
     _db_profile = run_async(st.session_state.repo.get_profile())
     st.session_state.profile = _db_profile if _db_profile else UserProfile()
 
-# Seed form display keys from the saved profile (once per session).
-# Using explicit session-state keys instead of value= ensures widgets always
-# reflect the saved profile after navigation, not a stale first-render cache.
-if "_pf_name" not in st.session_state:
+# Seed form display keys from the saved profile.
+# Re-seed whenever we navigate TO the Preferences page (widget keys may have
+# been cleaned up or reset to defaults while the widgets were not rendered).
+def _seed_profile_keys():
+    """Populate _pf_* session-state keys from the saved profile + ledger fallback."""
     _pf0 = st.session_state.profile
-    # If DB profile has no name, fall back to ledger contact line
     _ledger_name = ""
     _ledger_email = ""
     _ledger_phone = ""
@@ -445,12 +445,10 @@ if "_pf_name" not in st.session_state:
             _marker = "## Imported Resume:"
             _body = _lc.split(_marker, 1)[1] if _marker in _lc else _lc
             _lines = [l.strip() for l in _body.splitlines() if l.strip()]
-            # First non-filename line is the name
             if _lines and not _lines[0].endswith(".pdf"):
                 _ledger_name = _lines[0]
             elif len(_lines) > 1:
                 _ledger_name = _lines[1]
-            # Second line usually has phone/email/linkedin
             import re as _re_init
             for _ll in _lines[1:4]:
                 if not _ledger_email:
@@ -478,6 +476,14 @@ if "_pf_name" not in st.session_state:
     st.session_state["_pf_website"] = _pf0.website or _ledger_website
     st.session_state["_pf_summary"] = _pf0.base_summary
     st.session_state["_pf_skills"]  = ", ".join(_pf0.skills)
+
+# Capture navigation state from the PREVIOUS render before anything updates it.
+# This must happen at the very top so the sidebar cannot overwrite it first.
+_prev_on_prefs = st.session_state.get("_on_prefs_page", False)
+
+# Initial seed on first session load
+if "_pf_name" not in st.session_state:
+    _seed_profile_keys()
 
 if "pref_role" not in st.session_state:
     _pf_prefs = st.session_state.profile
@@ -579,6 +585,9 @@ with st.sidebar:
 
     st.markdown("")
     st.caption("TitanSwarm v2.0 · Fall 2026 SWE")
+
+# Track which page we're on so Preferences can detect "just arrived" state
+st.session_state["_on_prefs_page"] = (nav == "Preferences")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1009,6 +1018,15 @@ elif nav == "My Applications":
 # PAGE: PREFERENCES
 # ═════════════════════════════════════════════════════════════════════════════
 elif nav == "Preferences":
+    # Re-seed form keys from saved profile when navigating TO this page.
+    # This fixes data loss caused by Streamlit cleaning up / resetting widget
+    # keys when those widgets were not rendered on a different page.
+    # _prev_on_prefs was captured at the very top of this render, BEFORE the
+    # sidebar set _on_prefs_page for the current run. If it was False then
+    # the user just navigated here — re-seed all form keys from saved profile.
+    if not _prev_on_prefs:
+        _seed_profile_keys()
+
     # Flush any pending autofill values BEFORE any keyed widget is instantiated.
     # This avoids the "cannot be modified after widget is instantiated" error.
     if "_pf_pending" in st.session_state:
@@ -1119,6 +1137,25 @@ elif nav == "Preferences":
                 })
                 st.session_state.profile = _saved_pf
                 run_async(repo.save_profile(_saved_pf))
+
+                # ── GitHub enrichment ────────────────────────────────────────
+                _gh_handle = st.session_state.get("_pf_github", "").strip()
+                if _gh_handle:
+                    with st.spinner("Syncing GitHub repos into AI context..."):
+                        from src.core.github_enricher import fetch_github_context
+                        _gh_text = fetch_github_context(_gh_handle)
+                    if _gh_text:
+                        _ledger_path = os.path.join(
+                            os.path.dirname(__file__), "..", "..", "data", "ledger.md"
+                        )
+                        _lm_gh = LedgerManager(ledger_path=_ledger_path, db_path="data/faiss.index")
+                        _lm_gh.write_github_section(_gh_text)
+                        # Invalidate the resume text cache so tailor picks up new context
+                        st.session_state.pop("resume_text_cache", None)
+                        st.toast("GitHub repos synced into AI context!", icon="🐙")
+                    else:
+                        st.warning("Could not fetch GitHub repos — check the username in your profile.")
+
                 st.toast("Preferences saved!", icon="✅")
                 st.rerun()
 

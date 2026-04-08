@@ -41,6 +41,39 @@ class LedgerManager:
         self.index = faiss.IndexFlatL2(dimension) # L2 Distance metric
         self.index.add(np.array(embeddings).astype('float32'))
 
+    def write_github_section(self, github_text: str) -> None:
+        """
+        Write (or replace) the '## GitHub Projects:' section in the ledger file.
+
+        If the section already exists it is replaced entirely — no duplicates.
+        If it does not exist it is appended after the existing content.
+        """
+        _MARKER = "## GitHub Projects:"
+        new_block = f"{_MARKER}\n{github_text}\n"
+
+        if not os.path.exists(self.ledger_path):
+            with open(self.ledger_path, "w", encoding="utf-8") as f:
+                f.write(new_block)
+            return
+
+        content = open(self.ledger_path, encoding="utf-8").read()
+
+        if _MARKER in content:
+            # Replace from the marker to the next top-level section (##) or end of file
+            import re
+            content = re.sub(
+                rf"{re.escape(_MARKER)}.*?(?=\n## |\Z)",
+                new_block.rstrip(),
+                content,
+                count=1,
+                flags=re.DOTALL,
+            )
+        else:
+            content = content.rstrip() + "\n\n" + new_block
+
+        with open(self.ledger_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
     def search_facts(self, query: str, top_k: int = 3) -> List[str]:
         if self.index is None:
             raise RuntimeError("Cannot search facts before building the index. Call build_index() first.")

@@ -25,7 +25,7 @@ class TailoredProject(BaseModel):
     tech: str = Field(..., description="Tech stack string, e.g. 'Go, SQL, Docker'")
     date: str = Field(..., description="Date range, e.g. 'Jan 2026 – Present'")
     project_type: str = Field(default="Personal Project", description="e.g. 'Personal Project' or 'Collaborative Project'")
-    bullets: list[str] = Field(..., description="2-3 bullets in XYZ format rewritten to mirror the JD's keywords. ONLY facts from the resume.")
+    bullets: list[str] = Field(..., description="2–4 bullets in XYZ format rewritten to mirror the JD's keywords. ONLY facts from the resume. Use 4 bullets if this project is highly relevant to the JD; use 2 if it is only tangentially relevant.")
 
 class TailoredExperience(BaseModel):
     title: str = Field(..., description="Job title, e.g. 'Server'")
