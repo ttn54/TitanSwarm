@@ -238,8 +238,10 @@ class AITailor:
             "YOUR JOB:\n"
             "1. For skills_to_highlight: derive from the GitHub repos' tech stacks and any skills "
             "listed in the context. Omit categories irrelevant to this JD.\n"
-            "2. For tailored_projects: produce one TailoredProject per GitHub repo. "
-            "BULLET COUNT RULE: 4 bullets if that repo's tech directly matches the JD; 2 if tangential.\n"
+            "2. For tailored_projects: select the 3 GitHub repos MOST relevant to this JD and produce "
+            "one TailoredProject per repo. Rank by how closely the repo's tech stack and domain match "
+            "the JD and pick the top 3 — omit the rest. "
+            "BULLET COUNT RULE: 3 bullets per project.\n"
             "3. For tailored_experience: include any work experience from the context. "
             "Rewrite bullets in XYZ format using JD language.\n"
             "4. Do NOT invent project names, tech stacks, dates, or metrics not present in the context.\n\n"
@@ -259,9 +261,9 @@ class AITailor:
             f"Embed at least 4 verbatim into the bullets below.\n"
             f"2. From the resume skills section, select ONLY categories/skills relevant to this JD. "
             f"Omit irrelevant categories entirely.\n"
-            f"3. For tailored_projects: create one separate entry per GitHub repo in the context. "
-            f"Each '### RepoName' is its own project. Use README text as fact source for bullets. "
-            f"Give 4 bullets to repos whose tech matches the JD; 2 to tangential ones. "
+            f"3. For tailored_projects: pick the 3 GitHub repos most relevant to this JD. "
+            f"Each '### RepoName' is one candidate project — choose the top 3 by relevance, omit the rest. "
+            f"Use README text as fact source. Give each selected project exactly 3 bullets. "
             f"Preserve repo name as title exactly.\n"
             f"4. Rewrite every work experience bullet in XYZ format using JD language. "
             f"Preserve title, company, dates, location exactly.\n"
@@ -269,7 +271,10 @@ class AITailor:
             f"job_id to use in output: {job.id}"
         )
 
-        return await self._call_llm(system_prompt, user_prompt)
+        result = await self._call_llm(system_prompt, user_prompt)
+        # Hard cap: never show more than 3 projects regardless of AI output
+        result.tailored_projects = result.tailored_projects[:3]
+        return result
 
     async def _call_llm_text(self, prompt: str) -> str:
         """Call the LLM and return raw text (not parsed JSON)."""
