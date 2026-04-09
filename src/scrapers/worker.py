@@ -12,11 +12,13 @@ class SourcingEngine:
         self.repository = repository
         self.interval_hours = interval_hours
 
-    async def run_sweep(self, role: str, location: str, results_wanted: int = 10) -> int:
+    async def run_sweep(self, role: str, location: str, results_wanted: int = 10) -> tuple[int, list[str]]:
         """
         Executes a scraping sweep utilizing jobspy, converts the raw DataFrame
         to Pydantic Job models, deduplicates against the repository, and persists
-        new jobs. Returns the count of new jobs saved.
+        new jobs.
+        Returns (new_saved_count, all_found_job_ids) so the UI can display
+        all results for this sweep regardless of their current status.
         """
         loop = asyncio.get_event_loop()
 
@@ -35,7 +37,7 @@ class SourcingEngine:
 
         if jobs_df is None or jobs_df.empty:
             logger.info("Scraping sweep returned no results.")
-            return 0
+            return 0, []
 
         # Post-filter: only keep jobs whose title contains ALL words from the
         # search term. This prevents LinkedIn's algorithm from injecting
@@ -50,16 +52,19 @@ class SourcingEngine:
         jobs_df = jobs_df[jobs_df["title"].apply(_title_matches)]
         if jobs_df.empty:
             logger.info("No jobs matched title filter after scraping.")
-            return 0
+            return 0, []
 
         saved_count = 0
+        all_found_ids: list[str] = []
         for _, row in jobs_df.iterrows():
             job_id = str(row.get("id"))
             if job_id == "None":
                 logger.warning("Skipping job with null ID from scraper.")
                 continue
 
-            # Deduplication: check the repository via the standard interface
+            all_found_ids.append(job_id)
+
+            # Deduplication: only skip if already in DB
             existing = await self.repository.get_job(job_id)
             if existing is not None:
                 logger.debug(f"Skipping duplicate job: {job_id}")
@@ -96,4 +101,4 @@ class SourcingEngine:
             saved_count += 1
             logger.info(f"Saved new job: {job.role} at {job.company}")
 
-        return saved_count
+        return saved_count, all_found_ids

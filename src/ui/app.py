@@ -280,12 +280,13 @@ def avatar_html(company: str, size: int = 44, radius: int = 12) -> str:
             f'display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
             f'{initials}</div>')
 
-async def _run_discovery(repo, role: str, location: str, count: int) -> list[Job]:
-    """Clears previous DISCOVERED jobs, runs a real JobSpy sweep, returns new results."""
+async def _run_discovery(repo, role: str, location: str, count: int) -> list[str]:
+    """Clears previous DISCOVERED jobs, runs a real JobSpy sweep.
+    Returns the list of ALL job IDs found by this sweep (new + already in DB)."""
     await repo.delete_jobs_by_status(JobStatus.DISCOVERED)
     engine = SourcingEngine(repository=repo)
-    await engine.run_sweep(role=role, location=location, results_wanted=count)
-    return await repo.get_jobs_by_status(JobStatus.DISCOVERED)
+    _saved, all_ids = await engine.run_sweep(role=role, location=location, results_wanted=count)
+    return all_ids
 
 
 def _parse_ledger_for_pdf(ledger_path: str) -> dict:
@@ -655,10 +656,11 @@ if nav == "Job Feed":
             time.sleep(0.5)
             st.write("🔍  Parsing role requirements and extracting JDs…")
             time.sleep(0.4)
-            new_jobs = run_async(_run_discovery(repo, search_role, search_loc, 8))
-            st.write(f"✅  **{len(new_jobs)} new roles** added to feed.")
-            s.update(label=f"Done — {len(new_jobs)} jobs discovered.", state="complete")
-        st.toast(f"{len(new_jobs)} new opportunities added!", icon="⚡")
+            found_ids = run_async(_run_discovery(repo, search_role, search_loc, 8))
+            st.session_state.feed_job_ids = found_ids
+            st.write(f"✅  **{len(found_ids)} roles** found for this search.")
+            s.update(label=f"Done — {len(found_ids)} jobs in feed.", state="complete")
+        st.toast(f"{len(found_ids)} opportunities loaded!", icon="⚡")
         st.rerun()
 
     # ── Filter chips ──
@@ -685,15 +687,17 @@ if nav == "Job Feed":
         )
 
     # ── Job feed ──
-    _raw_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)) +
-                 run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
-
-    # Filter by current search role so a "marketing" search doesn't show
-    # leftover "Software Engineer" PENDING_REVIEW jobs and vice-versa.
-    _active_role = st.session_state.get("pref_role", "")
-    if _active_role:
-        _role_words = [w.lower() for w in _active_role.split() if w]
-        _raw_jobs = [j for j in _raw_jobs if all(w in j.role.lower() for w in _role_words)]
+    # Show jobs that belong to the current search (by ID), across all statuses.
+    # feed_job_ids is set when the user clicks "Find Jobs". On first load (no
+    # search yet) fall back to showing all DISCOVERED jobs.
+    _feed_ids: list[str] = st.session_state.get("feed_job_ids", [])
+    if _feed_ids:
+        _all_repo_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)) +
+                          run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
+        _id_set = set(_feed_ids)
+        _raw_jobs = [j for j in _all_repo_jobs if j.id in _id_set]
+    else:
+        _raw_jobs = run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED))
     all_jobs = filter_jobs(_raw_jobs, selected_chip)
     all_jobs = search_jobs(all_jobs, _search_q)
 
