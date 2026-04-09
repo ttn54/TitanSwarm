@@ -21,7 +21,8 @@
 ## Technical Skills
 * **Languages:** Python 3.12, Go, SQL.
 * **Tools:** Git, Linux, Docker, Pytest, Playwright.
-* **Concepts:** Test-Driven Development (TDD), Human-in-the-loop Agent workflows, Distributed State Machines, Vector Databases (FAISS).
+* **Testing & Validation:** Pytest (unit, integration, TDD), JUnit (Java), Test-Driven Development (TDD), 74-test suite with mocking and fixtures.
+* **Concepts:** Test-Driven Development (TDD), Agile software development lifecycle (SDLC), Human-in-the-loop Agent workflows, Distributed State Machines, Vector Databases (FAISS).
 
 ## Imported Resume: Zen_Nguyen_new_standard_resume.pdf
 
@@ -77,5 +78,22 @@ Pho Goodness Restaurant Burnaby, BC
 teams under pressure for 100+ guests per shift.
 
 ## GitHub Projects:
-### n54  ★0  |  Unknown  |  config, github-config
-Config files for my GitHub profile.
+### TitanSwarm  ★0  |  Python
+
+### TitanStore  ★0  |  Go
+README: # TitanStore
+
+TitanStore is a distributed key-value database built from scratch in Go. It implements the Raft consensus algorithm to elect a leader, replicate writes across a cluster, and survive node failures — all backed by a binary Write-Ahead Log with crash-safe recovery and atomic snapshots.
+
+It is the storage backend for TitanSync, a file-sync daemon that needs a highly available, replicated
+
+### SFU-Course-Tracker  ★0  |  TypeScript
+README: # 🎓 SFU Course Tracker
+
+**🌐 Live Demo:** [sfucourseplanner.me](https://www.sfucourseplanner.me) | [sfu-course-tracker.vercel.app](https://sfu-course-tracker.vercel.app)
+
+A full-stack web application for Simon Fraser University students to search, filter, and track course availability across **all 76 departments** with real-time data from official SFU APIs.
+
+## ✨ Features
+
+- 🔍 **Comprehensive Searc
