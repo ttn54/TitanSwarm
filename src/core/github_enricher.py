@@ -25,7 +25,8 @@ def fetch_github_context(username: str) -> str:
 
     Returns "" on any HTTP error (e.g. 404 unknown user, rate-limit).
     """
-    username = username.strip().lstrip("github.com/").lstrip("/")
+    import re as _re
+    username = _re.sub(r'^(?:https?://)?github\.com/', '', username.strip()).strip('/')
     if not username:
         return ""
 
