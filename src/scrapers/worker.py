@@ -31,6 +31,7 @@ class SourcingEngine:
                 search_term=role,
                 location=location,
                 results_wanted=results_wanted,
+                linkedin_fetch_description=True,
             )
 
         jobs_df = await loop.run_in_executor(None, _scrape)
@@ -39,15 +40,38 @@ class SourcingEngine:
             logger.info("Scraping sweep returned no results.")
             return 0, []
 
-        # Post-filter: only keep jobs whose title contains ALL words from the
-        # search term. This prevents LinkedIn's algorithm from injecting
-        # "Senior Software Engineer" when the user searched "Software Engineer Intern".
+        # Post-filter: prevent LinkedIn from injecting irrelevant jobs.
+        #
+        # Rules (applied in order):
+        #   1. Intern-type guard: if user searched "intern/internship/co-op",
+        #      title MUST contain an intern-type word. Blocks "Senior SWE" results.
+        #   2. Seniority guard: if user searched a seniority word (senior/lead/…),
+        #      title MUST contain THAT seniority word.
+        #   3. Role-word guard: at least ONE non-qualifier role word (≥4 chars)
+        #      must appear in the title. Blocks "Research Intern - AI" for "SWE Intern".
+        _INTERN_QUALS = {"intern", "internship", "co-op", "coop"}
+        _SENIORITY_QUALS = {"junior", "senior", "lead", "staff", "principal"}
+
         _search_words = [w.lower() for w in role.split() if w]
+        _has_intern = any(w in _INTERN_QUALS for w in _search_words)
+        _search_seniority = [w for w in _search_words if w in _SENIORITY_QUALS]
+        _role_words = [w for w in _search_words
+                       if w not in _INTERN_QUALS and w not in _SENIORITY_QUALS and len(w) >= 4]
+
         def _title_matches(title_val) -> bool:
             if not title_val or (isinstance(title_val, float) and pd.isna(title_val)):
                 return False
             t = str(title_val).lower()
-            return all(w in t for w in _search_words)
+            # Rule 1: intern-type guard
+            if _has_intern and not any(q in t for q in _INTERN_QUALS):
+                return False
+            # Rule 2: seniority guard
+            if _search_seniority and not any(s in t for s in _search_seniority):
+                return False
+            # Rule 3: at least one core role word must appear
+            if _role_words and not any(w in t for w in _role_words):
+                return False
+            return True
 
         jobs_df = jobs_df[jobs_df["title"].apply(_title_matches)]
         if jobs_df.empty:
@@ -64,14 +88,16 @@ class SourcingEngine:
 
             all_found_ids.append(job_id)
 
-            # Deduplication: only skip if already in DB
+            # Deduplication: skip only if the existing record has a real description.
+            # If description is missing/placeholder, fall through and overwrite it.
+            _BAD_DESC = {"", "Description not provided.", "None", "nan"}
             existing = await self.repository.get_job(job_id)
-            if existing is not None:
+            if existing is not None and existing.job_description.strip() not in _BAD_DESC:
                 logger.debug(f"Skipping duplicate job: {job_id}")
                 continue
 
-            description = row.get("description", "Description not provided.")
-            if pd.isna(description):
+            description = row.get("description")
+            if not description or (isinstance(description, float) and pd.isna(description)) or str(description).strip() in {"None", "nan", ""}:
                 description = "Description not provided."
 
             # Extract skills list from JobSpy 'skills' column (may be None or a list)
