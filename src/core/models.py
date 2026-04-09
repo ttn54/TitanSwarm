@@ -19,6 +19,8 @@ class Job(BaseModel):
     required_skills: list[str] = Field(default_factory=list)
     custom_questions: list[str] = Field(default_factory=list)
     url: str
+    location: str = ""
+    date_posted: str = ""
 
 class TailoredProject(BaseModel):
     title: str = Field(..., description="Project name, e.g. 'TitanStore'")

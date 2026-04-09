@@ -28,6 +28,8 @@ class JobModel(Base):
     url: Mapped[str] = mapped_column(String)
     required_skills: Mapped[str] = mapped_column(String, default="[]")
     custom_questions: Mapped[str] = mapped_column(String, default="[]")
+    location: Mapped[str] = mapped_column(String, default="")
+    date_posted: Mapped[str] = mapped_column(String, default="")
 
     def to_pydantic(self) -> Job:
         return Job(
@@ -39,6 +41,8 @@ class JobModel(Base):
             url=self.url,
             required_skills=json.loads(self.required_skills) if self.required_skills else [],
             custom_questions=json.loads(self.custom_questions) if self.custom_questions else [],
+            location=self.location or "",
+            date_posted=self.date_posted or "",
         )
 
 
@@ -95,9 +99,35 @@ class PostgresRepository(JobRepository):
         self.is_postgres = dsn.startswith("postgresql")
 
     async def init_db(self):
-        """Creates tables if they do not exist."""
+        """Creates tables if they do not exist, then migrates new columns."""
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        # SQLite does not re-add columns on create_all for existing tables,
+        # so we manually add new columns with a PRAGMA check.
+        await self._ensure_columns()
+
+    async def _ensure_columns(self):
+        """Adds columns that may be missing from an older DB schema."""
+        new_columns = [
+            ("jobs", "location", "TEXT DEFAULT ''"),
+            ("jobs", "date_posted", "TEXT DEFAULT ''"),
+        ]
+        async with self.engine.begin() as conn:
+            for table, col, col_def in new_columns:
+                existing = await conn.run_sync(
+                    lambda sync_conn, t=table: [
+                        row[1] for row in sync_conn.execute(
+                            __import__('sqlalchemy').text(f"PRAGMA table_info({t})")
+                        ).fetchall()
+                    ]
+                )
+                if col not in existing:
+                    await conn.execute(
+                        __import__('sqlalchemy').text(
+                            f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"
+                        )
+                    )
+                    logger.info(f"Migration: added column '{col}' to '{table}'")
 
     async def close(self):
         """Disposes the engine connection pool."""
@@ -117,6 +147,8 @@ class PostgresRepository(JobRepository):
                 "url": job.url,
                 "required_skills": json.dumps(job.required_skills),
                 "custom_questions": json.dumps(job.custom_questions),
+                "location": job.location or "",
+                "date_posted": job.date_posted or "",
             }
 
             if self.is_postgres:

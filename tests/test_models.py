@@ -14,6 +14,34 @@ def test_job_model_creation():
     assert job.required_skills == []
     assert job.custom_questions == []
 
+
+def test_job_has_location_and_date_fields():
+    """Job model must have optional location and date_posted fields."""
+    job = Job(
+        id="hash-999",
+        company="Acme",
+        role="SWE Intern",
+        job_description="Build stuff.",
+        url="https://example.com",
+        location="Vancouver, BC",
+        date_posted="3 days ago",
+    )
+    assert job.location == "Vancouver, BC"
+    assert job.date_posted == "3 days ago"
+
+
+def test_job_location_date_default_empty():
+    """location and date_posted default to empty string (backwards-compatible)."""
+    job = Job(
+        id="hash-000",
+        company="Acme",
+        role="SWE Intern",
+        job_description="Something.",
+        url="https://example.com",
+    )
+    assert job.location == ""
+    assert job.date_posted == ""
+
 def test_job_requires_id():
     with pytest.raises(ValidationError):
         Job(

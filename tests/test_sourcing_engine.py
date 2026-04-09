@@ -38,6 +38,63 @@ async def test_sourcing_engine_fetches_and_validates_jobs(mock_scrape_jobs):
 
 @pytest.mark.asyncio
 @patch("src.scrapers.worker.scrape_jobs")
+async def test_sourcing_engine_extracts_location_and_date(mock_scrape_jobs):
+    """run_sweep must persist location and date_posted from the scraped row."""
+    import pandas as pd
+    mock_df = pd.DataFrame([{
+        "id": "li-999",
+        "title": "Software Engineer Intern",
+        "company": "Shopify",
+        "description": "Write Python all day.",
+        "job_url": "https://linkedin.com/job/999",
+        "site": "linkedin",
+        "location": "Vancouver, BC",
+        "date_posted": "2026-04-06",
+    }])
+    mock_scrape_jobs.return_value = mock_df
+
+    mock_repo = AsyncMock()
+    mock_repo.get_job.return_value = None
+
+    engine = SourcingEngine(repository=mock_repo, interval_hours=12)
+    count, found_ids = await engine.run_sweep(role="Software Engineer Intern", location="Vancouver, BC", results_wanted=1)
+
+    assert count == 1
+    saved: Job = mock_repo.save_job.call_args[0][0]
+    assert saved.location == "Vancouver, BC"
+    assert saved.date_posted == "2026-04-06"
+
+
+@pytest.mark.asyncio
+@patch("src.scrapers.worker.scrape_jobs")
+async def test_title_filter_requires_job_type_word(mock_scrape_jobs):
+    """Smarter title filter: if search contains 'intern', title must contain 'intern'."""
+    import pandas as pd
+    # "Data Scientist" does NOT contain "intern" — should be filtered out
+    mock_df = pd.DataFrame([{
+        "id": "li-888",
+        "title": "Data Scientist",
+        "company": "Google",
+        "description": "ML research.",
+        "job_url": "https://linkedin.com/job/888",
+        "site": "linkedin",
+    }])
+    mock_scrape_jobs.return_value = mock_df
+
+    mock_repo = AsyncMock()
+    mock_repo.get_job.return_value = None
+
+    engine = SourcingEngine(repository=mock_repo, interval_hours=12)
+    count, found_ids = await engine.run_sweep(role="Software Engineer Intern", location="Vancouver, BC", results_wanted=1)
+
+    # "Data Scientist" contains neither "software" nor "engineer" nor "intern"
+    # — should be filtered; nothing saved
+    assert count == 0
+    assert found_ids == []
+
+
+@pytest.mark.asyncio
+@patch("src.scrapers.worker.scrape_jobs")
 async def test_sourcing_engine_skips_existing_jobs(mock_scrape_jobs):
     import pandas as pd
     mock_df = pd.DataFrame([{

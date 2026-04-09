@@ -3,6 +3,8 @@ import asyncio
 import sys
 import os
 import time
+import html as _html
+from datetime import date as _date, timedelta
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
@@ -53,6 +55,35 @@ def search_jobs(jobs: List[Job], query: Optional[str]) -> List[Job]:
         return jobs
     q = query.lower()
     return [j for j in jobs if q in j.company.lower() or q in j.role.lower()]
+
+
+_DATE_WINDOWS = {"Last 7 days": 7, "Last 14 days": 14, "Last 30 days": 30}
+
+
+def filter_by_date(jobs: List[Job], window: Optional[str]) -> List[Job]:
+    """Filter jobs by date_posted window.
+
+    Jobs with an empty/unknown date_posted are ALWAYS included (Option A).
+    'Any' or None returns all jobs unfiltered.
+    """
+    if not window or window == "Any":
+        return jobs
+    days = _DATE_WINDOWS.get(window)
+    if days is None:
+        return jobs
+    cutoff = _date.today() - timedelta(days=days)
+    result = []
+    for job in jobs:
+        if not job.date_posted:
+            result.append(job)  # unknown date → include
+            continue
+        try:
+            posted = _date.fromisoformat(job.date_posted[:10])
+            if posted >= cutoff:
+                result.append(job)
+        except ValueError:
+            result.append(job)  # unparseable → include
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -652,11 +683,11 @@ if nav == "Job Feed":
         st.session_state.pref_role = search_role
         st.session_state.pref_location = search_loc
         with st.status(f"Sourcing **{search_role}** roles in **{search_loc}**…", expanded=True) as s:
-            st.write("🌐  Connecting to job aggregators (LinkedIn · Indeed · Glassdoor)…")
+            st.write("🌐  Connecting to job aggregators (LinkedIn · Indeed)…")
             time.sleep(0.5)
             st.write("🔍  Parsing role requirements and extracting JDs…")
             time.sleep(0.4)
-            found_ids = run_async(_run_discovery(repo, search_role, search_loc, 8))
+            found_ids = run_async(_run_discovery(repo, search_role, search_loc, 25))
             st.session_state.feed_job_ids = found_ids
             st.write(f"✅  **{len(found_ids)} roles** found for this search.")
             s.update(label=f"Done — {len(found_ids)} jobs in feed.", state="complete")
@@ -671,12 +702,18 @@ if nav == "Job Feed":
         label_visibility="collapsed",
     )
 
-    # ── Search & Sort bar ──
-    _search_col, _sort_col = st.columns([3, 1])
+    # ── Search & Sort & Date bar ──
+    _search_col, _date_col, _sort_col = st.columns([3, 2, 1])
     with _search_col:
         _search_q = st.text_input(
             "🔎 Search jobs",
             placeholder="Filter by company or role…",
+            label_visibility="collapsed",
+        )
+    with _date_col:
+        _date_opt = st.selectbox(
+            "Date posted",
+            ["Any", "Last 7 days", "Last 14 days", "Last 30 days"],
             label_visibility="collapsed",
         )
     with _sort_col:
@@ -699,6 +736,7 @@ if nav == "Job Feed":
     else:
         _raw_jobs = run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED))
     all_jobs = filter_jobs(_raw_jobs, selected_chip)
+    all_jobs = filter_by_date(all_jobs, _date_opt)
     all_jobs = search_jobs(all_jobs, _search_q)
 
     # Compute match scores for sorting/display
@@ -729,7 +767,9 @@ if nav == "Job Feed":
 
         for job in all_jobs:
             skills_html = "".join(f'<span class="skill-pill">{s}</span>' for s in (job.required_skills or [])[:5])
-            desc = job.job_description[:180].rstrip() + "…"
+            # HTML-escape the description snippet so scraped HTML/markdown can't
+            # break out of the card template and render as raw code on screen.
+            desc = _html.escape(job.job_description[:180].rstrip()) + "…"
             _ms = _match_scores.get(job.id, 0)
             _ms_color = "#22c55e" if _ms >= 70 else "#eab308" if _ms >= 40 else "#ef4444"
             _ms_badge = f'<span style="background:{_ms_color};color:#fff;padding:2px 8px;border-radius:10px;font-size:0.72rem;font-weight:700;">{_ms}% match</span>'
@@ -749,6 +789,8 @@ if nav == "Job Feed":
                             </div>
                             <div class="jcard-role">{job.role}</div>
                             <div class="jcard-meta">
+                                {f"📍 {job.location} &nbsp;·&nbsp;" if job.location else ""}
+                                {f"🕐 {job.date_posted} &nbsp;·&nbsp;" if job.date_posted else ""}
                                 🔗 <a href="{job.url}" target="_blank"
                                    style="color:#6366f1;text-decoration:none;">{job.url[:60]}…</a>
                             </div>
@@ -858,8 +900,9 @@ if nav == "Job Feed":
                         run_async(repo.update_status(job.id, JobStatus.REJECTED))
                         st.rerun()
 
-                    # Cover letter button — only show after resume is tailored
-                    if f"pdf_{job.id}" in st.session_state:
+                    # Cover letter button — always visible; only active after resume is tailored
+                    _has_pdf = f"pdf_{job.id}" in st.session_state
+                    if _has_pdf:
                         _cl_err_key = f"cl_err_{job.id}"
                         if _cl_err_key in st.session_state:
                             st.error(st.session_state.pop(_cl_err_key))
@@ -905,6 +948,15 @@ if nav == "Job Feed":
                                 key=f"cl_dl_{job.id}",
                                 use_container_width=True,
                             )
+                    else:
+                        # Not yet tailored — show greyed-out button so layout is consistent
+                        st.button(
+                            "✉️ Cover Letter",
+                            key=f"cl_{job.id}_disabled",
+                            use_container_width=True,
+                            disabled=True,
+                            help="Tailor your resume first to unlock the cover letter.",
+                        )
 
                 with st.expander("View full description, Q&A & Cover Letter"):
                     st.write(job.job_description)

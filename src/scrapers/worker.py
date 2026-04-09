@@ -12,7 +12,7 @@ class SourcingEngine:
         self.repository = repository
         self.interval_hours = interval_hours
 
-    async def run_sweep(self, role: str, location: str, results_wanted: int = 10) -> tuple[int, list[str]]:
+    async def run_sweep(self, role: str, location: str, results_wanted: int = 25) -> tuple[int, list[str]]:
         """
         Executes a scraping sweep utilizing jobspy, converts the raw DataFrame
         to Pydantic Job models, deduplicates against the repository, and persists
@@ -87,6 +87,15 @@ class SourcingEngine:
             company_raw = row.get("company")
             company = str(company_raw) if company_raw and not (isinstance(company_raw, float) and pd.isna(company_raw)) else "Unknown Company"
 
+            location_raw = row.get("location")
+            job_location = str(location_raw) if location_raw and not (isinstance(location_raw, float) and pd.isna(location_raw)) else ""
+
+            date_raw = row.get("date_posted")
+            if date_raw and not (isinstance(date_raw, float) and pd.isna(date_raw)):
+                job_date = str(date_raw)
+            else:
+                job_date = ""
+
             job = Job(
                 id=job_id,
                 company=company,
@@ -94,7 +103,9 @@ class SourcingEngine:
                 status=JobStatus.DISCOVERED,
                 job_description=str(description),
                 required_skills=required_skills,
-                url=str(row.get("job_url"))
+                url=str(row.get("job_url")),
+                location=job_location,
+                date_posted=job_date,
             )
 
             await self.repository.save_job(job)
