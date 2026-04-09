@@ -19,9 +19,10 @@
 * **Details:** Implemented leader election, unencrypted raw non-blocking TCP socket communication over port 6001, and strictly typed parsing for SET, GET, and ERR NOT_LEADER operations.
 
 ## Technical Skills
-* **Languages:** Python 3.12, Go, SQL.
-* **Tools:** Git, Linux, Docker, Pytest, Playwright.
-* **Testing & Validation:** Pytest (unit, integration, TDD), JUnit (Java), Test-Driven Development (TDD), 74-test suite with mocking and fixtures.
+* **Languages:** Python 3.12, Go, TypeScript, JavaScript, Java, C, C++, SQL, HTML/CSS.
+* **Frontend:** React, TypeScript, Vite, REST API integration, JWT Authentication, Responsive Design.
+* **Tools:** Git, Linux, Docker, Pytest, Playwright, GitHub Actions, CI/CD pipelines.
+* **Testing & Validation:** Pytest (unit, integration, TDD), JUnit (Java), Test-Driven Development (TDD), 82-test suite with mocking and fixtures.
 * **Concepts:** Test-Driven Development (TDD), Agile software development lifecycle (SDLC), Human-in-the-loop Agent workflows, Distributed State Machines, Vector Databases (FAISS).
 
 ## Imported Resume: Zen_Nguyen_new_standard_resume.pdf
@@ -85,21 +86,52 @@ teams under pressure for 100+ guests per shift.
 
 ## GitHub Projects:
 ### TitanSwarm  ★0  |  Python
+Description: An autonomous, agentic job application Co-Pilot.
+Tech: Python, LangChain, FAISS, Streamlit, SQLite, Gemini API, JobSpy, Pytest
 
 ### TitanStore  ★0  |  Go
+Description: A distributed key-value database built from scratch in Go implementing the Raft consensus algorithm.
 README: # TitanStore
 
 TitanStore is a distributed key-value database built from scratch in Go. It implements the Raft consensus algorithm to elect a leader, replicate writes across a cluster, and survive node failures — all backed by a binary Write-Ahead Log with crash-safe recovery and atomic snapshots.
 
-It is the storage backend for TitanSync, a file-sync daemon that needs a highly available, replicated
+## Features
+- **Raft consensus** — leader election, log replication, split-brain prevention
+- **Durable writes** — binary WAL with `fsync` on every record
+- **Crash recovery** — two-phase boot: load snapshot, replay WAL tail since snapshot index
+- **Log compaction** — `TakeSnapshot()` serialises state atomically
+- **TCP client API** — plaintext GET / SET / DELETE; followers redirect writes to leader
 
 ### SFU-Course-Tracker  ★0  |  TypeScript
-README: # 🎓 SFU Course Tracker
+Description: Full-stack web app for SFU students to search, filter, and track course availability across all 76 departments.
+README: # SFU Course Tracker
 
-**🌐 Live Demo:** [sfucourseplanner.me](https://www.sfucourseplanner.me) | [sfu-course-tracker.vercel.app](https://sfu-course-tracker.vercel.app)
+A full-stack web application for Simon Fraser University students to search, filter, and track course availability across all 76 departments with real-time data from official SFU APIs. Live: sfucourseplanner.me
 
-A full-stack web application for Simon Fraser University students to search, filter, and track course availability across **all 76 departments** with real-time data from official SFU APIs.
+## Tech Stack
 
-## ✨ Features
+### Frontend
+- **React** with **TypeScript**
+- **Vite** - Lightning-fast build tool
+- **CSS3** - Modern responsive styling
+- **Deployed on Vercel** with automatic SSL
 
-- 🔍 **Comprehensive Searc
+### Backend
+- **FastAPI** (Python 3.12) - High-performance async API
+- **SQLite** with **SQLAlchemy ORM**
+- **JWT Authentication** with bcrypt password hashing
+- **Deployed on AWS EC2** with Docker
+
+### Infrastructure
+- **Docker & Docker Compose** - Containerized deployment
+- **GitHub Actions** - CI/CD pipeline
+
+## Features
+- Comprehensive Search: 3000+ courses across all 76 SFU departments
+- Real-time Data from official SFU APIs
+- Smart Filtering by department, course level, and availability
+- Responsive Design: desktop, tablet, and mobile
+- User Authentication: JWT-based registration and login
+- Seat Tracking: Monitor course availability with notifications
+- Custom prerequisite parser: converts nested boolean strings into an AST
+- Asyncio + HTTPX scraping pipeline with semaphore-based rate limiting

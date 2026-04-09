@@ -84,3 +84,96 @@ async def test_ai_tailor_returns_structured_output(sample_job):
             assert result.tailored_experience[0].title == "Server"
             assert "summary" not in TailoredApplication.model_fields
             mock_call.assert_called_once()
+
+
+# ── Prompt-content tests ─────────────────────────────────────────────────────
+
+def _make_tailor(tmp_path):
+    """Helper: build an AITailor with all external calls mocked out."""
+    with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
+        mock_ledger = MagicMock(spec=LedgerManager)
+        mock_ledger.ledger_path = str(tmp_path / "ledger.md")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        with patch("google.genai.Client"):
+            return AITailor(ledger_manager=mock_ledger)
+
+
+def _blank_result(job_id: str) -> TailoredApplication:
+    return TailoredApplication(
+        job_id=job_id, skills_to_highlight={},
+        tailored_projects=[], tailored_experience=[], q_and_a_responses={},
+    )
+
+
+async def _capture_system_prompt(tailor: AITailor, job: Job) -> str:
+    """Run tailor_application and return the system_prompt that was built."""
+    captured: dict = {}
+
+    async def _spy(system_prompt: str, user_prompt: str) -> TailoredApplication:
+        captured["system"] = system_prompt
+        return _blank_result(job.id)
+
+    with patch.object(tailor, "_call_llm", side_effect=_spy):
+        await tailor.tailor_application(job)
+    return captured["system"]
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_contains_skill_taxonomy(tmp_path, sample_job):
+    """Skills section must reference a broad taxonomy — not just Frontend vs Backend."""
+    tailor = _make_tailor(tmp_path)
+    system = await _capture_system_prompt(tailor, sample_job)
+
+    # Taxonomy must cover at minimum these four domains beyond Frontend/Backend
+    assert "Mobile" in system,               "Taxonomy must include Mobile Development"
+    assert "DevOps" in system or "Infrastructure" in system, \
+                                              "Taxonomy must include DevOps/Infrastructure"
+    assert "Machine Learning" in system or "AI &" in system, \
+                                              "Taxonomy must include AI/ML"
+    assert "Data Engineering" in system or "Data Pipeline" in system, \
+                                              "Taxonomy must include Data Engineering"
+
+    # Old binary hard-coding must be gone
+    assert "Frontend JD → create a 'Frontend' category (not 'Backend & Systems')" not in system
+    assert "Backend JD → create 'Backend & Systems'. Full-stack → both." not in system
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_uses_keyword_overlap_for_project_scoring(tmp_path, sample_job):
+    """Project selection must use JD keyword-overlap scoring, not binary domain routing."""
+    tailor = _make_tailor(tmp_path)
+    system = await _capture_system_prompt(tailor, sample_job)
+
+    # Must mention keyword / overlap scoring
+    assert "keyword" in system.lower() or "overlap" in system.lower(), \
+        "Project scoring must reference keyword-overlap, not binary domain rules"
+
+    # Old binary routing lines must be gone
+    assert "Frontend JD (Vue/React/TypeScript) → pick frontend/TypeScript repos" not in system
+    assert "Backend JD (Go/distributed) → pick systems repos, exclude pure-frontend repos" not in system
+
+
+@pytest.mark.asyncio
+async def test_user_prompt_uses_keyword_overlap_for_project_scoring(tmp_path, sample_job):
+    """User prompt must also use keyword-overlap language for project scoring."""
+    with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
+        mock_ledger = MagicMock(spec=LedgerManager)
+        mock_ledger.ledger_path = str(tmp_path / "ledger.md")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        with patch("google.genai.Client"):
+            tailor = AITailor(ledger_manager=mock_ledger)
+
+    captured: dict = {}
+
+    async def _spy(system_prompt: str, user_prompt: str) -> TailoredApplication:
+        captured["user"] = user_prompt
+        return _blank_result(sample_job.id)
+
+    with patch.object(tailor, "_call_llm", side_effect=_spy):
+        await tailor.tailor_application(sample_job)
+
+    user = captured["user"]
+    assert "keyword" in user.lower() or "overlap" in user.lower(), \
+        "User prompt must reference keyword-overlap for project scoring"
+    assert "Frontend/TypeScript/Vue JD → exclude Go/distributed/systems repos" not in user
+    assert "Backend/Go/systems JD → exclude pure frontend repos" not in user

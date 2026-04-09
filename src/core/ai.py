@@ -140,29 +140,25 @@ class AITailor:
             '{\n'
             '  "job_id": "<string>",\n'
             '  "skills_to_highlight": {\n'
-            '    "Languages": ["skill1", "skill2"],\n'
-            '    "Backend & Systems": ["skill3"]\n'
-            '    // Only include categories with skills relevant to this JD. Omit irrelevant ones entirely.\n'
+            '    // CRITICAL: Category NAMES must reflect THIS JD domain, not be generic.\n'
+            '    // Frontend JD → use "Frontend" not "Backend & Systems".\n'
+            '    // Backend JD → use "Backend & Systems". Full-stack → both.\n'
+            '    // Examples: "Frontend", "Backend & Systems", "Languages", "Infrastructure & DevOps",\n'
+            '    //           "AI & Data", "Testing & Validation", "Cloud & Infrastructure"\n'
+            '    // Only include categories containing skills the JD actually requires.\n'
+            '    "<JD-relevant category>": ["skill1", "skill2"],\n'
+            '    "<another JD-relevant category>": ["skill3"]\n'
             '  },\n'
             '  "tailored_projects": [\n'
             '    {\n'
             '      "title": "<project name from resume>",\n'
-            '      "tech": "<tech stack>",\n'
+            '      "tech": "<4-5 techs from THIS project most relevant to THIS JD — not all techs>",\n'
             '      "date": "<date range>",\n'
             '      "project_type": "<Personal Project or Collaborative Project>",\n'
             '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>", "<XYZ bullet 3 — add if relevant>", "<XYZ bullet 4 — add if highly relevant>"]\n'
             '    }\n'
             '  ],\n'
-            '  "tailored_experience": [\n'
-            '    {\n'
-            '      "title": "<job title from resume>",\n'
-            '      "company": "<company name from resume>",\n'
-            '      "start_date": "<start date>",\n'
-            '      "end_date": "<end date>",\n'
-            '      "location": "<location>",\n'
-            '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>"]\n'
-            '    }\n'
-            '  ],\n'
+            '  "tailored_experience": [],\n'
             '  "q_and_a_responses": {"<question>": "<answer>"}\n'
             '}'
         )
@@ -216,12 +212,15 @@ class AITailor:
             "IRON RULE — NO HALLUCINATIONS: You are ABSOLUTELY FORBIDDEN from inventing any project, "
             "tool, company, date, GPA, metric, or technology that does not appear in the "
             "CANDIDATE'S CONTEXT below. Every claim must be traceable to the context text.\n\n"
-            "GITHUB PROJECTS RULE (highest priority for tailored_projects):\n"
+            "GITHUB PROJECTS RULE (strict relevance-first selection):\n"
             "The context may contain a '## GitHub Projects:' section. Each entry starting with "
-            "'### RepoName' is one of the candidate's real projects. "
-            "EVERY such repo MUST appear as its own separate TailoredProject entry — do NOT merge repos. "
+            "'### RepoName' is one of the candidate's REAL projects — these are your only valid project sources. "
+            "You MUST select the 3 repos whose tech stack and domain BEST MATCH the JD. "
+            "DO NOT include a repo just because it sounds impressive — relevance to THIS specific JD is the only criterion. "
+            "A Go/distributed-systems repo is IRRELEVANT for a frontend Vue/TypeScript JD. "
+            "A Python/AI repo is IRRELEVANT for a Java/Android JD. Score each repo honestly. "
             "Use the repo's description and README text as the verified facts for bullet points. "
-            "For title: use the repo name. For tech: infer from language field and README. "
+            "For title: use the repo name exactly. For tech: infer from language field and README. "
             "For date: use 'Present' if not specified. For project_type: 'Personal Project'.\n\n"
             "BULLET FORMAT — XYZ RULE (mandatory for every bullet):\n"
             "Structure every bullet as: 'Accomplished [X] by doing [Y], resulting in [Z].'\n"
@@ -236,14 +235,30 @@ class AITailor:
             "Wrap each injected JD keyword in **double asterisks** (e.g. **distributed systems**) "
             "so they render as bold in the PDF — this maximises ATS scoring and recruiter eye-tracking.\n\n"
             "YOUR JOB:\n"
-            "1. For skills_to_highlight: derive from the GitHub repos' tech stacks and any skills "
-            "listed in the context. Omit categories irrelevant to this JD. "
-            "TESTING RULE: if the JD mentions 'test', 'validation', 'quality', 'QA', or 'bug', "
-            "you MUST include a 'Testing & Validation' category with tools like Pytest, JUnit, TDD from the context.\n"
-            "2. For tailored_projects: select the 3 GitHub repos MOST relevant to this JD and produce "
-            "one TailoredProject per repo. Rank by how closely the repo's tech stack and domain match "
-            "the JD and pick the top 3 — omit the rest. "
-            "BULLET COUNT RULE: 4 bullets if that repo's tech directly matches the JD; 2 if only tangential.\n"
+            "1. For skills_to_highlight: derive category NAMES from the JD domain using this taxonomy:\n"
+            "  \u2022 'Frontend'                -> JD mentions UI, React, Vue, Angular, TypeScript, accessibility, CSS\n"
+            "  \u2022 'Backend & Systems'        -> JD mentions APIs, microservices, Node.js, Go, Python server, gRPC, databases\n"
+            "  \u2022 'Mobile Development'       -> JD mentions iOS, Android, Swift, Kotlin, React Native, Flutter\n"
+            "  \u2022 'Infrastructure & DevOps'  -> JD mentions Docker, Kubernetes, Terraform, CI/CD, cloud infra, pipelines\n"
+            "  \u2022 'AI & Machine Learning'    -> JD mentions ML, LLMs, PyTorch, TensorFlow, RAG, NLP, embeddings, AI\n"
+            "  \u2022 'Data Engineering'         -> JD mentions SQL, ETL, Airflow, Spark, Pandas, data pipelines, analytics\n"
+            "  \u2022 'Distributed Systems'      -> JD mentions Raft, consensus, fault tolerance, distributed DB, replication\n"
+            "  \u2022 'Cloud & Services'         -> JD mentions AWS, GCP, Azure, serverless, S3, Lambda, cloud deployment\n"
+            "  \u2022 'Security & Networking'    -> JD mentions auth, OAuth, JWT, TLS, OWASP, penetration testing\n"
+            "  \u2022 'Testing & Validation'     -> JD mentions test, QA, validation, bug, automation, quality\n"
+            "  \u2022 'Databases'               -> JD mentions schema design, indexing, PostgreSQL, MongoDB, Redis\n"
+            "  \u2022 'Languages'               -> JD lists specific language proficiency requirements\n"
+            "CATEGORY RULES: Select only the 2-4 categories the JD actually requires. "
+            "You may create a new category label (e.g. 'Game Development', 'Embedded Systems') if no taxonomy entry fits. "
+            "Always include 'Testing & Validation' if the JD mentions testing or QA.\n"
+            "2. For tailored_projects: use keyword-overlap scoring — works for ANY job type.\n"
+            "  STEP A: Extract the top 10 specific tech keywords from the JD (tools, languages, frameworks, patterns).\n"
+            "  STEP B: For each GitHub repo in the context, count how many JD keywords appear "
+            "in its README, description, or tech stack. Repos with zero keyword overlap MUST be excluded.\n"
+            "  STEP C: Rank repos by overlap count. Select the top 3 only.\n"
+            "  For the 'tech' field per repo: list ONLY the 4-5 techs from that project "
+            "with the highest overlap with THIS JD's keywords — not the full stack.\n"
+            "  BULLET COUNT RULE: give 4 bullets to repos with 3+ keyword matches; give 2 bullets to repos with 1-2 matches.\n"
             "3. For tailored_experience: leave this array empty — work experience is not included on this resume.\n"
             "4. Do NOT invent project names, tech stacks, dates, or metrics not present in the context.\n\n"
             f"CANDIDATE'S CONTEXT:\n{resume_text}"
@@ -263,10 +278,12 @@ class AITailor:
             f"2. From the resume skills section, select ONLY categories/skills relevant to this JD. "
             f"Omit irrelevant categories entirely. "
             f"If the JD mentions Agile, SDLC, or project planning — embed those exact terms naturally into at least one bullet.\n"
-            f"3. For tailored_projects: pick the 3 GitHub repos most relevant to this JD. "
-            f"Each '### RepoName' is one candidate project — choose the top 3 by relevance, omit the rest. "
-            f"Use README text as fact source. "
-            f"Give 4 bullets to repos whose tech directly matches the JD; give only 2 bullets to tangential ones. "
+            f"3. For tailored_projects: use keyword-overlap scoring. "
+            f"Extract the top 10 tech keywords from the JD. For each GitHub repo in the context, "
+            f"count how many JD keywords appear in its README/stack (this is its overlap score). "
+            f"Rank repos by overlap score and pick the top 3 — repos with zero overlap must be excluded entirely. "
+            f"For the 'tech' field per repo: list only the 4-5 techs with the highest overlap with THIS JD's keywords. "
+            f"Give 4 bullets to repos with 3+ keyword matches; give only 2 bullets to repos with 1-2 matches. "
             f"Preserve repo name as title exactly.\n"
             f"4. Leave tailored_experience as an empty array [].\n"
             f"5. Answer these application questions (if any):\n{questions_str}\n\n"

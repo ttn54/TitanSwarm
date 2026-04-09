@@ -14,7 +14,7 @@ import urllib.request
 
 _GITHUB_API = "https://api.github.com"
 _MAX_REPOS = 6
-_README_CHARS = 400  # max chars to take from each README
+_README_CHARS = 2000  # enough to capture Tech Stack sections in most READMEs
 
 
 def fetch_github_context(username: str) -> str:
@@ -71,12 +71,19 @@ def fetch_github_context(username: str) -> str:
 
         header = f"### {name}  ★{stars}  |  {language}"
         if topics:
-            header += f"  |  {topics}"
+            header += f"  |  topics: {topics}"
         lines.append(header)
         if description:
-            lines.append(description)
+            lines.append(f"Description: {description}")
         if readme_text:
             lines.append(f"README: {readme_text[:_README_CHARS]}")
+        else:
+            # No README — synthesise a tech line from API metadata so the AI
+            # still knows the stack (language + topics are reliable signals).
+            tech_line = language
+            if topics:
+                tech_line += ", " + topics
+            lines.append(f"Tech: {tech_line}")
         lines.append("")  # blank line between repos
 
     return "\n".join(lines).strip()
