@@ -10,8 +10,8 @@
 
 ### TitanSwarm
 * **Description:** An autonomous, agentic job application platform.
-* **Tech Stack:** Python, Go, Playwright, FAISS, Streamlit, Raw TCP Sockets, Raft Consensus.
-* **Details:** Built a decoupled architecture using the Repository Pattern. Decoupled the scraping workers from the custom Go-based distributed database (TitanStore).
+* **Tech Stack:** Python, LangChain, FAISS, Streamlit, SQLite, JobSpy, Gemini API.
+* **Details:** Built a decoupled architecture using the Repository Pattern. Concurrent JobSpy scrapers source real jobs from LinkedIn and Indeed. A zero-hallucination RAG engine using LangChain and FAISS generates ATS-optimized PDF resumes tailored to each job description.
 
 ### TitanStore
 * **Description:** A custom distributed Key-Value database.
@@ -41,18 +41,24 @@ TECHNICAL SKILLS
 • Backend & Systems: FastAPI, Node.js, Express, RESTful APIs, gRPC, TCP Sockets, Raft Consensus Algorithm.
 • Infrastructure & DB: AWS (EC2), Docker, PostgreSQL, MongoDB, Git, Linux (WSL), JobSpy.
 TECHNICAL PROJECTS
-TitanSwarm (Autonomous AI Co-Pilot) & TitanStore (Raft Database) Jan 2026 – Present
-Personal Project Python, Go, LangChain, FAISS
+TitanSwarm (Autonomous AI Co-Pilot) Jan 2026 – Present
+Personal Project Python, LangChain, FAISS, Streamlit, SQLite, Gemini API
 • Architected an autonomous AI Co-Pilot in Python that automates end-to-end job application workflows, enabling the discovery,
-extraction, and parsing of thousands of Software Engineering postings with advanced anti-bot evasion via concurrent JobSpy
-scrapers.
-• Built a zero-hallucination RAG (Retrieval-Augmented Generation) engine using LangChain, OpenAI APIs, and a sandboxed
-FAISS Vector Store, delivering uniquely tailored, ATS-optimized PDF resumes for each job by leveraging only verified user
-data.
-• Developed TitanStore, a distributed memory bank in Go, implementing the Raft consensus protocol and a custom Write-Ahead
-Log (WAL) to guarantee application state durability and fault tolerance across network failures.
-• Designed and implemented a high-throughput TCP client API, enabling the Python AI workers to perform concurrent, real-time
-status updates (e.g., Pending, Submitted) to the Go database cluster, supporting seamless scaling to 100+ users.
+extraction, and parsing of real-time Software Engineering postings via concurrent JobSpy scrapers across LinkedIn and Indeed.
+• Built a zero-hallucination RAG (Retrieval-Augmented Generation) engine using LangChain, Gemini APIs, and a sandboxed
+FAISS Vector Store, delivering uniquely tailored, ATS-optimized PDF resumes for each job using only verified user data.
+• Designed and implemented a Streamlit Human-in-the-Loop dispatch UI with a Kanban board, enabling users to review, tailor,
+and manage applications across a full pipeline with persistent state via a SQLite repository layer.
+• Applied Test-Driven Development (TDD) with a 82-test suite using Pytest, mocking, and async fixtures to validate all
+components including the scraper, AI tailor, PDF generator, and repository layer.
+TitanStore (Distributed Raft Database) Jan 2026 – Present
+Personal Project Go, Raft Consensus Algorithm, TCP Sockets
+• Developed a distributed key-value database in Go from scratch, implementing the Raft consensus protocol for leader election
+and fault-tolerant log replication across a cluster of nodes.
+• Engineered a crash-safe Write-Ahead Log (WAL) with atomic snapshots to guarantee data durability and enable node recovery
+after failures without data loss.
+• Designed and implemented a high-throughput raw TCP server on port 6001, parsing a custom text protocol supporting SET,
+GET, and ERR NOT_LEADER operations with non-blocking I/O.
 Gridlock Casino (2D Arcade Engine) Feb 2026 – Present
 Collaborative Project Java, Swing, Maven, JUnit
 • Architected a custom 2D grid-based arcade game engine in Java, managing game state, 60-FPS rendering cycles, and concurrent
