@@ -242,8 +242,7 @@ class AITailor:
             "one TailoredProject per repo. Rank by how closely the repo's tech stack and domain match "
             "the JD and pick the top 3 — omit the rest. "
             "BULLET COUNT RULE: 3 bullets per project.\n"
-            "3. For tailored_experience: include any work experience from the context. "
-            "Rewrite bullets in XYZ format using JD language.\n"
+            "3. For tailored_experience: leave this array empty — work experience is not included on this resume.\n"
             "4. Do NOT invent project names, tech stacks, dates, or metrics not present in the context.\n\n"
             f"CANDIDATE'S CONTEXT:\n{resume_text}"
         )
@@ -265,8 +264,7 @@ class AITailor:
             f"Each '### RepoName' is one candidate project — choose the top 3 by relevance, omit the rest. "
             f"Use README text as fact source. Give each selected project exactly 3 bullets. "
             f"Preserve repo name as title exactly.\n"
-            f"4. Rewrite every work experience bullet in XYZ format using JD language. "
-            f"Preserve title, company, dates, location exactly.\n"
+            f"4. Leave tailored_experience as an empty array [].\n"
             f"5. Answer these application questions (if any):\n{questions_str}\n\n"
             f"job_id to use in output: {job.id}"
         )

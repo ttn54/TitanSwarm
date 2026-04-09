@@ -134,22 +134,6 @@
 {% endfor %}
 {% endif %}
 
-<!-- ── WORK EXPERIENCE ───────────────────────────────────── -->
-{% if ai_data.tailored_experience %}
-<h2>Work Experience</h2>
-{% for job in ai_data.tailored_experience %}
-<div class="entry">
-    <div class="row">
-        <span class="entry-title">{{ job.title }}{% if job.company %} &nbsp;&middot;&nbsp; {{ job.company }}{% endif %}</span>
-        <span class="entry-date">{{ job.start_date }} – {{ job.end_date }}</span>
-    </div>
-    {% if job.location %}
-    <div class="row"><span></span><span class="entry-loc">{{ job.location }}</span></div>
-    {% endif %}
-    <ul>{% for b in job.bullets %}<li>{{ b | mdbold }}</li>{% endfor %}</ul>
-</div>
-{% endfor %}
-{% endif %}
 
 </body>
 </html>

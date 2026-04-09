@@ -43,8 +43,14 @@ def fetch_github_context(username: str) -> str:
     except Exception:
         return ""
 
-    # ── 2. Filter forks, sort by stars, take top N ──────────────────────────
-    owned = [r for r in repos if not r.get("fork", False)]
+    # ── 2. Filter forks + junk repos, sort by stars, take top N ────────────
+    _junk_langs = {None, "config"}
+    owned = [
+        r for r in repos
+        if not r.get("fork", False)
+        and r.get("language") not in _junk_langs
+        and r.get("name", "").lower() != username.lower()  # skip profile README repos
+    ]
     owned.sort(key=lambda r: r.get("stargazers_count", 0), reverse=True)
     top = owned[:_MAX_REPOS]
 

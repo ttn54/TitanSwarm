@@ -75,3 +75,7 @@ Server Jan 2024 – Present
 Pho Goodness Restaurant Burnaby, BC
 • Maintained a 3.74 CGPA while working 20+ hours/week, streamlining operations and coordinating effectively with diverse
 teams under pressure for 100+ guests per shift.
+
+## GitHub Projects:
+### n54  ★0  |  Unknown  |  config, github-config
+Config files for my GitHub profile.
