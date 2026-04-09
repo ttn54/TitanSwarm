@@ -38,27 +38,58 @@ def _parse_ledger_as_resume(ledger_path: str) -> str:
     return content.strip()
 
 
-async def _gemini_call_with_retry(loop, client, model: str, contents, config, max_retries: int = 5):
+async def _gemini_call_with_retry(loop, client, model: str, contents, config):
     """
-    Call the Gemini API with exponential backoff on 503 (overloaded) errors.
-    Waits 8s → 16s → 32s → 64s before giving up.
+    Call the Gemini API with model-cascade fallback on 503 (overloaded).
+
+    Cascade: flash-lite-001 → flash-001 → flash → gemma-3-27b-it
+    Each model runs on separate Google infrastructure, so if the entire Gemini
+    flash pool is down, Gemma (different cluster) will still respond.
+
+    Note: Gemma does not support response_mime_type in config — the caller's
+    JSON-fence stripping handles parsing for those responses.
     """
+    from google.genai import types as _gtypes
     from google.genai.errors import ServerError
-    delay = 8
-    for attempt in range(max_retries):
-        try:
-            return await loop.run_in_executor(
-                None,
-                lambda: client.models.generate_content(
-                    model=model, contents=contents, config=config,
-                ),
-            )
-        except ServerError as e:
-            if e.status_code == 503 and attempt < max_retries - 1:
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 64)
-                continue
-            raise
+
+    _model_cascade = [
+        model,
+        "gemini-3.1-flash-lite-preview",  # 2.5s, 500 RPD
+        "gemma-4-31b-it",                 # 16s, 1.5K RPD, unlimited TPM
+        "gemma-3-27b-it",                  # 22s, 14.4K RPD — last resort
+    ]
+    # Deduplicate while preserving order
+    seen: set = set()
+    cascade = [m for m in _model_cascade if not (m in seen or seen.add(m))]
+
+    last_exc = None
+    for candidate in cascade:
+        # Gemma models don't support response_mime_type — strip it for those models
+        if "gemma" in candidate or "gemini" not in candidate:
+            try:
+                _cfg = _gtypes.GenerateContentConfig(temperature=config.temperature or 0.2)
+            except Exception:
+                _cfg = config
+        else:
+            _cfg = config
+
+        delay = 8
+        for attempt in range(2):   # 2 tries per model before escalating
+            try:
+                _m, _c = candidate, _cfg   # capture for lambda closure
+                return await loop.run_in_executor(
+                    None,
+                    lambda: client.models.generate_content(
+                        model=_m, contents=contents, config=_c,
+                    ),
+                )
+            except ServerError as e:
+                last_exc = e
+                if e.status_code == 503 and attempt == 0:
+                    await asyncio.sleep(delay)
+                    continue
+                break   # non-503 or second attempt failed → next model
+    raise last_exc
 
 
 class AITailor:
@@ -144,14 +175,17 @@ class AITailor:
         loop = asyncio.get_event_loop()
         response = await _gemini_call_with_retry(
             loop, self._gemini_client,
-            model="gemini-2.0-flash-lite-001",
+            model="gemini-2.5-flash-lite",
             contents=full_prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.2,
             ),
         )
-        return TailoredApplication.model_validate_json(response.text)
+        # Strip markdown fences in case a Gemma fallback was used
+        _raw = re.sub(r"^```(?:json)?\s*", "", response.text.strip(), flags=re.IGNORECASE)
+        _raw = re.sub(r"\s*```$", "", _raw.strip())
+        return TailoredApplication.model_validate_json(_raw)
 
     async def _call_openai(self, system_prompt: str, user_prompt: str) -> TailoredApplication:
         completion = await self._openai_client.beta.chat.completions.parse(
@@ -244,7 +278,7 @@ class AITailor:
             loop = asyncio.get_event_loop()
             response = await _gemini_call_with_retry(
                 loop, self._gemini_client,
-                model="gemini-2.0-flash-lite-001",
+                model="gemini-2.5-flash-lite",
                 contents=prompt,
                 config=types.GenerateContentConfig(temperature=0.3),
             )
