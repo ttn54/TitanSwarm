@@ -174,6 +174,19 @@ class PostgresRepository(JobRepository):
             result = await session.execute(select(func.count()).select_from(JobModel))
             return result.scalar() or 0
 
+    async def delete_jobs_by_status(self, status: JobStatus) -> int:
+        """Deletes all jobs with the given status. Returns count deleted."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(JobModel).where(JobModel.status == status)
+            )
+            jobs = result.scalars().all()
+            count = len(jobs)
+            for job in jobs:
+                await session.delete(job)
+            await session.commit()
+            return count
+
     # ── UserProfile persistence ──
 
     async def save_profile(self, profile: UserProfile) -> bool:

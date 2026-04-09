@@ -37,6 +37,9 @@ def test_valid_repository_implementation():
         async def count_all(self) -> int:
             return 0
 
+        async def delete_jobs_by_status(self, status: JobStatus) -> int:
+            return 0
+
         async def save_profile(self, profile: UserProfile) -> bool:
             return True
 

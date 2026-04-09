@@ -18,15 +18,38 @@ class SourcingEngine:
         to Pydantic Job models, deduplicates against the repository, and persists
         new jobs. Returns the count of new jobs saved.
         """
-        jobs_df = scrape_jobs(
-            site_name=["indeed", "linkedin", "glassdoor"],
-            search_term=role,
-            location=location,
-            results_wanted=results_wanted
-        )
+        loop = asyncio.get_event_loop()
+
+        # Run the blocking scrape_jobs call in a thread pool so it doesn't
+        # freeze the event loop. LinkedIn is the only reliable free source;
+        # Indeed is included as a secondary. Glassdoor requires login cookies.
+        def _scrape() -> pd.DataFrame:
+            return scrape_jobs(
+                site_name=["linkedin", "indeed"],
+                search_term=role,
+                location=location,
+                results_wanted=results_wanted,
+            )
+
+        jobs_df = await loop.run_in_executor(None, _scrape)
 
         if jobs_df is None or jobs_df.empty:
             logger.info("Scraping sweep returned no results.")
+            return 0
+
+        # Post-filter: only keep jobs whose title contains ALL words from the
+        # search term. This prevents LinkedIn's algorithm from injecting
+        # "Senior Software Engineer" when the user searched "Software Engineer Intern".
+        _search_words = [w.lower() for w in role.split() if w]
+        def _title_matches(title_val) -> bool:
+            if not title_val or (isinstance(title_val, float) and pd.isna(title_val)):
+                return False
+            t = str(title_val).lower()
+            return all(w in t for w in _search_words)
+
+        jobs_df = jobs_df[jobs_df["title"].apply(_title_matches)]
+        if jobs_df.empty:
+            logger.info("No jobs matched title filter after scraping.")
             return 0
 
         saved_count = 0

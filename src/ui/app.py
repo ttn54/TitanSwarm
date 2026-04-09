@@ -281,7 +281,8 @@ def avatar_html(company: str, size: int = 44, radius: int = 12) -> str:
             f'{initials}</div>')
 
 async def _run_discovery(repo, role: str, location: str, count: int) -> list[Job]:
-    """Runs a real JobSpy scraping sweep and returns newly discovered jobs."""
+    """Clears previous DISCOVERED jobs, runs a real JobSpy sweep, returns new results."""
+    await repo.delete_jobs_by_status(JobStatus.DISCOVERED)
     engine = SourcingEngine(repository=repo)
     await engine.run_sweep(role=role, location=location, results_wanted=count)
     return await repo.get_jobs_by_status(JobStatus.DISCOVERED)
@@ -685,7 +686,14 @@ if nav == "Job Feed":
 
     # ── Job feed ──
     _raw_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)) +
-                run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
+                 run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
+
+    # Filter by current search role so a "marketing" search doesn't show
+    # leftover "Software Engineer" PENDING_REVIEW jobs and vice-versa.
+    _active_role = st.session_state.get("pref_role", "")
+    if _active_role:
+        _role_words = [w.lower() for w in _active_role.split() if w]
+        _raw_jobs = [j for j in _raw_jobs if all(w in j.role.lower() for w in _role_words)]
     all_jobs = filter_jobs(_raw_jobs, selected_chip)
     all_jobs = search_jobs(all_jobs, _search_q)
 
@@ -984,31 +992,34 @@ elif nav == "My Applications":
                             </div>
                         </div>""", unsafe_allow_html=True)
 
-                    if lane_name == "Pending Review":
-                        for job in jobs[:5]:
-                            bc1, bc2 = st.columns(2)
+                        if lane_name == "Pending Review":
+                            bc1, bc2, bc3 = st.columns(3)
                             with bc1:
-                                if st.button(f"✅ Submit", key=f"kanban_sub_{job.id}", use_container_width=True):
+                                if st.button("✅ Submit", key=f"kanban_sub_{job.id}", use_container_width=True):
                                     run_async(repo.update_status(job.id, JobStatus.SUBMITTED))
                                     st.rerun()
                             with bc2:
-                                if st.button(f"✗ Reject", key=f"kanban_rej_pr_{job.id}", use_container_width=True):
+                                if st.button("↩ Return", key=f"kanban_ret_{job.id}", use_container_width=True):
+                                    run_async(repo.update_status(job.id, JobStatus.DISCOVERED))
+                                    st.rerun()
+                            with bc3:
+                                if st.button("✗ Reject", key=f"kanban_rej_pr_{job.id}", use_container_width=True):
                                     run_async(repo.update_status(job.id, JobStatus.REJECTED))
                                     st.rerun()
-                    elif lane_name == "Applied":
-                        for job in jobs[:5]:
+
+                        elif lane_name == "Applied":
                             bc1, bc2 = st.columns(2)
                             with bc1:
-                                if st.button(f"🎤 Interview", key=f"kanban_int_{job.id}", use_container_width=True):
+                                if st.button("🎤 Interview", key=f"kanban_int_{job.id}", use_container_width=True):
                                     run_async(repo.update_status(job.id, JobStatus.INTERVIEW))
                                     st.rerun()
                             with bc2:
-                                if st.button(f"✗ Reject", key=f"kanban_rej_ap_{job.id}", use_container_width=True):
+                                if st.button("✗ Reject", key=f"kanban_rej_ap_{job.id}", use_container_width=True):
                                     run_async(repo.update_status(job.id, JobStatus.REJECTED))
                                     st.rerun()
-                    elif lane_name == "Interview":
-                        for job in jobs[:5]:
-                            if st.button(f"✗ Reject", key=f"kanban_rej_iv_{job.id}", use_container_width=True):
+
+                        elif lane_name == "Interview":
+                            if st.button("✗ Reject", key=f"kanban_rej_iv_{job.id}", use_container_width=True):
                                 run_async(repo.update_status(job.id, JobStatus.REJECTED))
                                 st.rerun()
 

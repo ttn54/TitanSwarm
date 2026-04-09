@@ -55,6 +55,12 @@ class MockUIRepository(JobRepository):
     async def count_all(self) -> int:
         return len(self.jobs)
 
+    async def delete_jobs_by_status(self, status: JobStatus) -> int:
+        to_delete = [jid for jid, j in self.jobs.items() if j.status == status]
+        for jid in to_delete:
+            del self.jobs[jid]
+        return len(to_delete)
+
     async def save_profile(self, profile: UserProfile) -> bool:
         self._profile = profile
         return True

@@ -35,6 +35,11 @@ class JobRepository(ABC):
         """Returns the total count of all jobs in the repository."""
         pass
 
+    @abstractmethod
+    async def delete_jobs_by_status(self, status: JobStatus) -> int:
+        """Deletes all jobs with the given status. Returns the count deleted."""
+        pass
+
     # ── UserProfile persistence ──
 
     @abstractmethod
