@@ -327,9 +327,16 @@ class AITailor:
         result = await self._call_llm(system_prompt, user_prompt)
         # Hard cap: never show more than 3 projects regardless of AI output
         result.tailored_projects = result.tailored_projects[:3]
-        # Code-enforced bullet trim: LLM may ignore the prompt rule, so enforce it here
-        for proj in result.tailored_projects:
-            if proj.keyword_overlap_count <= 2:
+        # Sort by overlap descending so the best-matching project is always first
+        result.tailored_projects = sorted(
+            result.tailored_projects,
+            key=lambda p: p.keyword_overlap_count,
+            reverse=True,
+        )
+        # Code-enforced bullet trim: top project always keeps all bullets;
+        # 2nd and 3rd projects with low overlap are trimmed to 2 bullets
+        for i, proj in enumerate(result.tailored_projects):
+            if i > 0 and proj.keyword_overlap_count <= 2:
                 proj.bullets = proj.bullets[:2]
         return result
 
