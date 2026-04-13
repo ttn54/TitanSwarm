@@ -177,3 +177,57 @@ async def test_user_prompt_uses_keyword_overlap_for_project_scoring(tmp_path, sa
         "User prompt must reference keyword-overlap for project scoring"
     assert "Frontend/TypeScript/Vue JD → exclude Go/distributed/systems repos" not in user
     assert "Backend/Go/systems JD → exclude pure frontend repos" not in user
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Gap 2 — _parse_ledger_as_resume must always include GitHub Projects section
+# ──────────────────────────────────────────────────────────────────────────────
+from src.core.ai import _parse_ledger_as_resume
+
+
+def test_parse_ledger_returns_github_section_when_before_resume_marker(tmp_path):
+    """
+    If ## GitHub Projects: appears BEFORE ## Imported Resume:, the GitHub block
+    must still be present in the returned context — not silently dropped.
+
+    This is the new-user failure mode: GitHub Refresh runs first, then PDF upload.
+    The marker-based split discards everything before '## Imported Resume:',
+    including the GitHub section, so the AI gets zero project context.
+    """
+    ledger = (
+        "## Technical Skills\n* Python, Go\n\n"
+        "## GitHub Projects:\n### QuantumRepo\nQuantum computing framework.\n\n"
+        "## Imported Resume: resume.pdf\n\n"
+        "Zen Nguyen\nzen@sfu.ca\n"
+    )
+    path = tmp_path / "ledger.md"
+    path.write_text(ledger)
+
+    result = _parse_ledger_as_resume(str(path))
+
+    assert "QuantumRepo" in result, (
+        "_parse_ledger_as_resume must include GitHub Projects even when they appear "
+        "before the ## Imported Resume: marker"
+    )
+    assert "Zen Nguyen" in result, "Imported resume text must still be present"
+
+
+def test_parse_ledger_returns_github_section_when_after_resume_marker(tmp_path):
+    """
+    If ## GitHub Projects: appears AFTER ## Imported Resume: (the normal layout
+    after a refresh-then-upload sequence), the section must be included.
+    This verifies the happy-path still works after the fix.
+    """
+    ledger = (
+        "## Technical Skills\n* Python, Go\n\n"
+        "## Imported Resume: resume.pdf\n\n"
+        "Zen Nguyen\nzen@sfu.ca\n\n"
+        "## GitHub Projects:\n### QuantumRepo\nQuantum computing framework.\n"
+    )
+    path = tmp_path / "ledger.md"
+    path.write_text(ledger)
+
+    result = _parse_ledger_as_resume(str(path))
+
+    assert "QuantumRepo" in result
+    assert "Zen Nguyen" in result

@@ -1354,6 +1354,8 @@ elif nav == "Preferences":
                             f.write(base + f"\n\n{marker} {uploaded.name}\n\n{text}")
                         if st.session_state.tailor:
                             st.session_state.tailor.ledger.build_index()
+                        # Clear match-score cache so Job Feed reflects the new resume immediately
+                        st.session_state.pop("resume_text_cache", None)
                         st.toast(f"{uploaded.name} ingested ✓  Profile fields auto-filled above.", icon="✅")
                         st.rerun()
                 except Exception as e:

@@ -24,16 +24,40 @@ _load_dotenv()
 
 def _parse_ledger_as_resume(ledger_path: str) -> str:
     """
-    Reads ledger.md and returns the full text of the imported resume section.
-    Falls back to the base ledger facts if no resume has been imported yet.
+    Reads ledger.md and returns the AI context for tailoring.
+
+    Always includes the '## GitHub Projects:' block regardless of its position
+    in the file — this section may appear before OR after '## Imported Resume:'
+    depending on whether the user ran GitHub Refresh before or after uploading
+    their PDF.  Dropping it silently would give the AI zero project context.
+
+    Layout handled:
+      Case A (normal): base → ## Imported Resume: → ## GitHub Projects:
+      Case B (new user does refresh first): base → ## GitHub Projects: → ## Imported Resume:
     """
     if not os.path.exists(ledger_path):
         return ""
     content = open(ledger_path, encoding="utf-8").read()
-    marker = "## Imported Resume:"
-    if marker in content:
-        # Return everything after the marker — this is the pdfplumber-extracted resume text
-        return content.split(marker, 1)[1].strip()
+
+    _RESUME_MARKER = "## Imported Resume:"
+    _GITHUB_MARKER = "## GitHub Projects:"
+
+    # Extract GitHub Projects block (everything from the marker to the next ## or EOF)
+    github_block = ""
+    if _GITHUB_MARKER in content:
+        after_gh = content.split(_GITHUB_MARKER, 1)[1]
+        # Stop at the next top-level section heading (##) if present
+        next_section = re.search(r"\n## ", after_gh)
+        block_body = after_gh[: next_section.start()] if next_section else after_gh
+        github_block = f"{_GITHUB_MARKER}\n{block_body.strip()}"
+
+    if _RESUME_MARKER in content:
+        resume_body = content.split(_RESUME_MARKER, 1)[1].strip()
+        # If resume already contains the GitHub block (Case A), no need to prepend
+        if github_block and _GITHUB_MARKER not in resume_body:
+            return f"{github_block}\n\n{resume_body}"
+        return resume_body
+
     # No resume uploaded yet — return the whole ledger as context
     return content.strip()
 
