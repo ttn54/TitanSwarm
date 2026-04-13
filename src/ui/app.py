@@ -1254,6 +1254,9 @@ elif nav == "Preferences":
                         )
                         _lm_gh = LedgerManager(ledger_path=_ledger_path, db_path="data/faiss.index")
                         _lm_gh.write_github_section(_gh_text)
+                        # Rebuild the live tailor index so new repos are immediately searchable
+                        if st.session_state.tailor:
+                            st.session_state.tailor.ledger.build_index()
                         # Invalidate the resume text cache so tailor picks up new context
                         st.session_state.pop("resume_text_cache", None)
                         st.toast("GitHub repos synced into AI context!", icon="🐙")
@@ -1262,6 +1265,37 @@ elif nav == "Preferences":
 
                 st.toast("Preferences saved!", icon="✅")
                 st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── GitHub context ──
+        with st.container(border=True):
+            st.markdown('<div class="profile-card-title">GitHub Context</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.75rem;">Fetches your public repos and writes them into the AI fact ledger so the tailor can reference your real projects.</div>', unsafe_allow_html=True)
+            _gh_display = st.session_state.get("_pf_github", "").strip() or "(no GitHub username saved)"
+            st.caption(f"Username: {_gh_display}")
+            if st.button("🔄 Refresh GitHub Projects", use_container_width=True):
+                _gh_handle = st.session_state.get("_pf_github", "").strip()
+                if not _gh_handle:
+                    st.warning("Add your GitHub username in the Identity card above and save your profile first.")
+                else:
+                    with st.spinner(f"Fetching repos for {_gh_handle}…"):
+                        from src.core.github_enricher import fetch_github_context
+                        _gh_text = fetch_github_context(_gh_handle)
+                    if _gh_text:
+                        _lp_gh = os.path.join(
+                            os.path.dirname(__file__), "..", "..", "data", "ledger.md"
+                        )
+                        _lm_refresh = LedgerManager(ledger_path=_lp_gh, db_path="data/faiss.index")
+                        _lm_refresh.write_github_section(_gh_text)
+                        # Rebuild live tailor index so new repos are immediately searchable
+                        if st.session_state.tailor:
+                            st.session_state.tailor.ledger.build_index()
+                        st.session_state.pop("resume_text_cache", None)
+                        st.toast("GitHub projects refreshed!", icon="🐙")
+                        st.rerun()
+                    else:
+                        st.warning("Could not fetch repos — check your GitHub username or try again later.")
 
         st.markdown("<br>", unsafe_allow_html=True)
 

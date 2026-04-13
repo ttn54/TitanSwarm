@@ -177,5 +177,60 @@ class TestWriteGithubSection(unittest.TestCase):
             os.unlink(path)
 
 
+class TestGithubWriteRebuildContract(unittest.TestCase):
+    """
+    Verify the mandatory sequence: write_github_section → build_index → searchable.
+
+    This is the contract the UI must follow: calling write_github_section()
+    without a subsequent build_index() leaves the in-memory FAISS index STALE —
+    the new GitHub content is on disk but NOT yet retrievable by search_facts().
+    """
+
+    def _make_ledger(self, content: str) -> tuple[str, LedgerManager]:
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        )
+        tmp.write(content)
+        tmp.flush()
+        tmp.close()
+        return tmp.name, LedgerManager(ledger_path=tmp.name, db_path=":memory:")
+
+    def test_stale_index_before_rebuild(self):
+        """
+        After write_github_section(), in-memory chunks must NOT yet contain the
+        new repo name (index is stale — the file was updated but build_index was not called).
+        """
+        path, mgr = self._make_ledger("## Technical Skills\n* Python, Go\n")
+        mgr.build_index()   # initial build
+
+        mgr.write_github_section("### QuantumRepo\nQuantum computing framework.\n")
+
+        # Without rebuild: in-memory chunks still reflect the old file
+        self.assertFalse(
+            any("QuantumRepo" in c for c in mgr.chunks),
+            "Index should be STALE before build_index() is called",
+        )
+
+    def test_fresh_index_after_rebuild(self):
+        """
+        After write_github_section() + build_index(), the new repo content MUST
+        be present in the in-memory chunks.
+        """
+        path, mgr = self._make_ledger("## Technical Skills\n* Python, Go\n")
+        mgr.build_index()   # initial build
+
+        mgr.write_github_section("### QuantumRepo\nQuantum computing framework.\n")
+        mgr.build_index()   # rebuild after write
+
+        self.assertTrue(
+            any("QuantumRepo" in c for c in mgr.chunks),
+            "Index must be FRESH after build_index() is called",
+        )
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 if __name__ == "__main__":
     unittest.main()
