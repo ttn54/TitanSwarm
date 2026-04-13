@@ -62,7 +62,7 @@ async def _run_concurrent_sweep(
 
 
 async def main():
-    dsn = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/titanswarm")
+    dsn = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///titanswarm.db")
     interval_hours = int(os.getenv("SCRAPER_INTERVAL_HOURS", "12"))
     results_wanted = int(os.getenv("SCRAPER_RESULTS_WANTED", "25"))
 
