@@ -15,6 +15,7 @@ from src.scrapers.worker import SourcingEngine
 from src.core.ledger import LedgerManager
 from src.core.ai import AITailor
 from src.core.pdf_generator import PDFGenerator
+from src.core.env_writer import upsert_env_vars, read_env_var
 from typing import List, Optional
 
 
@@ -1265,6 +1266,75 @@ elif nav == "Preferences":
 
                 st.toast("Preferences saved!", icon="✅")
                 st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Daemon config ──
+        with st.container(border=True):
+            st.markdown('<div class="profile-card-title">Daemon Config</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.75rem;">Configure which roles and locations the background scraper targets. Uses <code>|</code> to separate values internally.</div>', unsafe_allow_html=True)
+
+            _env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+
+            # Read current values from .env (not os.environ — daemon runs in a separate process)
+            _cur_roles = read_env_var(_env_path, "SCRAPER_ROLES",
+                read_env_var(_env_path, "SCRAPER_ROLE", "Software Engineer Intern"))
+            _cur_locs  = read_env_var(_env_path, "SCRAPER_LOCATIONS",
+                read_env_var(_env_path, "SCRAPER_LOCATION", "Vancouver, BC"))
+            _cur_interval = read_env_var(_env_path, "SCRAPER_INTERVAL_HOURS", "12")
+            _cur_results  = read_env_var(_env_path, "SCRAPER_RESULTS_WANTED", "25")
+
+            # Display pipe-separated strings as one-per-line for readability
+            _roles_default  = "\n".join(r.strip() for r in _cur_roles.split("|")  if r.strip())
+            _locs_default   = "\n".join(l.strip() for l in _cur_locs.split("|")   if l.strip())
+
+            _daemon_roles = st.text_area(
+                "Roles to search (one per line)",
+                value=_roles_default,
+                height=100,
+                key="_daemon_roles",
+            )
+            _daemon_locs = st.text_area(
+                "Locations (one per line)",
+                value=_locs_default,
+                height=100,
+                key="_daemon_locs",
+            )
+            _dc1, _dc2 = st.columns(2)
+            with _dc1:
+                _daemon_interval = st.number_input(
+                    "Interval (hours)", min_value=1, max_value=168,
+                    value=int(_cur_interval) if _cur_interval.isdigit() else 12,
+                    key="_daemon_interval",
+                )
+            with _dc2:
+                _daemon_results = st.number_input(
+                    "Results per sweep", min_value=5, max_value=100,
+                    value=int(_cur_results) if _cur_results.isdigit() else 25,
+                    key="_daemon_results",
+                )
+
+            # Live sweep counter
+            _n_roles = len([r for r in _daemon_roles.splitlines() if r.strip()])
+            _n_locs  = len([l for l in _daemon_locs.splitlines()  if l.strip()])
+            _n_sweeps = _n_roles * _n_locs
+            if _n_sweeps > 0:
+                st.caption(f"🔄 {_n_sweeps} concurrent sweep(s) per cycle ({_n_roles} role(s) × {_n_locs} location(s))")
+
+            if st.button("💾  Save Daemon Config", use_container_width=True):
+                _roles_pipe = "|".join(r.strip() for r in _daemon_roles.splitlines() if r.strip())
+                _locs_pipe  = "|".join(l.strip() for l in _daemon_locs.splitlines()  if l.strip())
+                if not _roles_pipe or not _locs_pipe:
+                    st.warning("Enter at least one role and one location before saving.")
+                else:
+                    upsert_env_vars(_env_path, {
+                        "SCRAPER_ROLES":          _roles_pipe,
+                        "SCRAPER_LOCATIONS":      _locs_pipe,
+                        "SCRAPER_INTERVAL_HOURS": str(int(_daemon_interval)),
+                        "SCRAPER_RESULTS_WANTED": str(int(_daemon_results)),
+                    })
+                    st.toast("Daemon config saved! Restart the daemon process to apply.", icon="⚙️")
+                    st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
 
