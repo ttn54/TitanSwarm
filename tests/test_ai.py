@@ -231,3 +231,96 @@ def test_parse_ledger_returns_github_section_when_after_resume_marker(tmp_path):
 
     assert "QuantumRepo" in result
     assert "Zen Nguyen" in result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Bullet trim: projects with <= 2 keyword matches must be trimmed to 2 bullets
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _make_project(title: str, overlap: int, n_bullets: int) -> TailoredProject:
+    return TailoredProject(
+        title=title,
+        tech="Python",
+        date="Jan 2026",
+        bullets=[f"Bullet {i}" for i in range(n_bullets)],
+        keyword_overlap_count=overlap,
+    )
+
+
+def _blank_result_with_projects(job_id: str, projects: list) -> TailoredApplication:
+    return TailoredApplication(
+        job_id=job_id,
+        skills_to_highlight={"Languages": ["Python"]},
+        tailored_projects=projects,
+        tailored_experience=[],
+    )
+
+
+@pytest.mark.asyncio
+async def test_low_overlap_projects_trimmed_to_two_bullets(tmp_path, sample_job):
+    """Projects with keyword_overlap_count <= 2 must have bullets trimmed to 2 after tailor_application."""
+    with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
+        mock_ledger = MagicMock(spec=LedgerManager)
+        mock_ledger.ledger_path = str(tmp_path / "ledger.md")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        with patch("google.genai.Client"):
+            tailor = AITailor(ledger_manager=mock_ledger)
+
+    low_overlap_project = _make_project("LowMatch", overlap=2, n_bullets=4)
+    mocked_result = _blank_result_with_projects(sample_job.id, [low_overlap_project])
+
+    with patch.object(tailor, "_call_llm", return_value=mocked_result):
+        result = await tailor.tailor_application(sample_job)
+
+    assert len(result.tailored_projects[0].bullets) == 2, (
+        "A project with keyword_overlap_count=2 must be trimmed to 2 bullets"
+    )
+
+
+@pytest.mark.asyncio
+async def test_high_overlap_projects_keep_four_bullets(tmp_path, sample_job):
+    """Projects with keyword_overlap_count >= 3 must keep all 4 bullets."""
+    with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
+        mock_ledger = MagicMock(spec=LedgerManager)
+        mock_ledger.ledger_path = str(tmp_path / "ledger.md")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        with patch("google.genai.Client"):
+            tailor = AITailor(ledger_manager=mock_ledger)
+
+    high_overlap_project = _make_project("HighMatch", overlap=3, n_bullets=4)
+    mocked_result = _blank_result_with_projects(sample_job.id, [high_overlap_project])
+
+    with patch.object(tailor, "_call_llm", return_value=mocked_result):
+        result = await tailor.tailor_application(sample_job)
+
+    assert len(result.tailored_projects[0].bullets) == 4, (
+        "A project with keyword_overlap_count=3 must keep all 4 bullets"
+    )
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_forbids_skills_not_in_context(tmp_path, sample_job):
+    """System prompt must explicitly forbid listing skills that are not in the candidate context."""
+    with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
+        mock_ledger = MagicMock(spec=LedgerManager)
+        mock_ledger.ledger_path = str(tmp_path / "ledger.md")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        with patch("google.genai.Client"):
+            tailor = AITailor(ledger_manager=mock_ledger)
+
+    captured: dict = {}
+
+    async def _spy(system_prompt: str, user_prompt: str) -> TailoredApplication:
+        captured["system"] = system_prompt
+        return _blank_result(sample_job.id)
+
+    with patch.object(tailor, "_call_llm", side_effect=_spy):
+        await tailor.tailor_application(sample_job)
+
+    system = captured["system"].lower()
+    assert "skills_to_highlight" in system and (
+        "only" in system or "forbidden" in system or "must not" in system or "context" in system
+    ), "System prompt must guard skills_to_highlight to context-only skills"
+    assert "missing_skills" in captured["system"], (
+        "System prompt must instruct LLM to populate missing_skills field"
+    )

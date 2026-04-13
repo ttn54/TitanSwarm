@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 class JobStatus(str, Enum):
     DISCOVERED = "DISCOVERED"
@@ -28,6 +28,14 @@ class TailoredProject(BaseModel):
     date: str = Field(..., description="Date range, e.g. 'Jan 2026 – Present'")
     project_type: str = Field(default="Personal Project", description="e.g. 'Personal Project' or 'Collaborative Project'")
     bullets: list[str] = Field(..., description="2–4 bullets in XYZ format rewritten to mirror the JD's keywords. ONLY facts from the resume. Use 4 bullets if this project is highly relevant to the JD; use 2 if it is only tangentially relevant.")
+    keyword_overlap_count: int = Field(default=0, description="Number of JD tech keywords that appear in this project's stack or README. Fill this during STEP B scoring. 0 means no overlap — this project must be excluded.")
+
+    @field_validator("tech", mode="before")
+    @classmethod
+    def coerce_tech_list_to_string(cls, v: object) -> str:
+        if isinstance(v, list):
+            return ", ".join(str(item) for item in v)
+        return v
 
 class TailoredExperience(BaseModel):
     title: str = Field(..., description="Job title, e.g. 'Server'")
@@ -41,11 +49,12 @@ class TailoredApplication(BaseModel):
     job_id: str
     skills_to_highlight: dict[str, list[str]] = Field(
         ...,
-        description="Categorized skills from the resume most relevant to this JD. Keys are category names (e.g. 'Languages', 'Backend & Systems'), values are lists of skills."
+        description="Categorized skills from the resume most relevant to this JD. Keys are category names (e.g. 'Languages', 'Backend & Systems'), values are lists of skills. ONLY include skills that are explicitly present in the CANDIDATE'S CONTEXT — do NOT add skills from the JD that the candidate has not demonstrated."
     )
     tailored_projects: list[TailoredProject] = Field(..., description="Each project from the resume with bullets rewritten for this JD.")
     tailored_experience: list[TailoredExperience] = Field(..., description="Each work experience entry with bullets rewritten for this JD.")
     q_and_a_responses: dict[str, str] = Field(default_factory=dict, description="Answers to custom portal questions.")
+    missing_skills: list[str] = Field(default_factory=list, description="Skills or technologies mentioned in the JD that are NOT present anywhere in the candidate's context. These are genuine gaps the candidate should be aware of. Be specific — list individual tools/languages, not categories (e.g. 'Kubernetes', 'Ansible', not 'DevOps skills').")
 
 class UserProfile(BaseModel):
     name: str = ""

@@ -86,6 +86,17 @@ def test_tailored_project_type_collaborative():
     assert proj.project_type == "Collaborative Project"
 
 
+def test_tailored_project_tech_coerces_list_to_string():
+    """LLM may return tech as a list — model must coerce it to a comma-separated string."""
+    proj = TailoredProject(
+        title="TitanSwarm",
+        tech=["Python", "LangChain", "Streamlit", "Gemini API"],
+        date="Jan 2026 – Present",
+        bullets=["Built RAG pipeline."],
+    )
+    assert proj.tech == "Python, LangChain, Streamlit, Gemini API"
+
+
 def test_skills_to_highlight_is_categorized_dict():
     app = TailoredApplication(
         job_id="j2",
@@ -143,3 +154,49 @@ def test_tailored_application_has_tailored_experience():
     )
     assert len(app.tailored_experience) == 1
     assert app.tailored_experience[0].title == "Server"
+
+
+def test_tailored_project_has_keyword_overlap_count():
+    """TailoredProject must accept and store keyword_overlap_count."""
+    proj = TailoredProject(
+        title="TitanStore",
+        tech="Go, Docker",
+        date="Jan 2026 – Present",
+        bullets=["Built Raft.", "Added WAL.", "Set up TCP.", "Tested replication."],
+        keyword_overlap_count=4,
+    )
+    assert proj.keyword_overlap_count == 4
+
+
+def test_tailored_project_keyword_overlap_defaults_to_zero():
+    """keyword_overlap_count should default to 0 so old code stays compatible."""
+    proj = TailoredProject(
+        title="TitanStore",
+        tech="Go, Docker",
+        date="Jan 2026 – Present",
+        bullets=["Built Raft."],
+    )
+    assert proj.keyword_overlap_count == 0
+
+
+def test_tailored_application_has_missing_skills_field():
+    """TailoredApplication must accept a missing_skills list."""
+    app = TailoredApplication(
+        job_id="j5",
+        skills_to_highlight={"Languages": ["Python"]},
+        tailored_projects=[],
+        tailored_experience=[],
+        missing_skills=["Kubernetes", "Ansible", "Cassandra"],
+    )
+    assert app.missing_skills == ["Kubernetes", "Ansible", "Cassandra"]
+
+
+def test_tailored_application_missing_skills_defaults_to_empty():
+    """missing_skills must default to [] for backwards compatibility."""
+    app = TailoredApplication(
+        job_id="j6",
+        skills_to_highlight={"Languages": ["Python"]},
+        tailored_projects=[],
+        tailored_experience=[],
+    )
+    assert app.missing_skills == []
