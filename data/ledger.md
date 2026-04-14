@@ -86,15 +86,123 @@ teams under pressure for 100+ guests per shift.
 
 ## GitHub Projects:
 ### TitanSwarm  ★0  |  Python
-Description: An autonomous, agentic job application Co-Pilot.
-Tech: Python, LangChain, FAISS, Streamlit, SQLite, Gemini API, JobSpy, Pytest
+Tech: Python
 
 ### TitanStore  ★0  |  Go
-Description: A distributed key-value database built from scratch in Go implementing the Raft consensus algorithm.
 README: # TitanStore
 
 TitanStore is a distributed key-value database built from scratch in Go. It implements the Raft consensus algorithm to elect a leader, replicate writes across a cluster, and survive node failures — all backed by a binary Write-Ahead Log with crash-safe recovery and atomic snapshots.
 
+It is the storage backend for TitanSync, a file-sync daemon that needs a highly available, replicated state store.
+
+---
+
+## Features
+
+- **Raft consensus** — leader election, log replication, split-brain prevention
+- **Durable writes** — binary WAL with `fsync` on every record; if `SET` returns `OK`, it is on disk
+- **Crash recovery** — two-phase boot: load snapshot, replay WAL tail since snapshot index
+- **Log compaction** — `TakeSnapshot()` serialises state atomically (`write → fsync → rename`) and truncates the WAL
+- **Dynamic cluster config** — topology via `--peers` flag, no recompile needed
+- **TCP client API** — plaintext `GET` / `SET` / `DELETE`, compatible with `nc`; followers automatically redirect writes to the current leader
+
+---
+
+## Quick Start
+
+```bash
+# Build
+go build -o bin/titanstore-server cmd/server/main.go
+
+# Start a 3-node cluster
+make cluster-start
+
+# Or manually
+go run cmd/server/main.go \
+  -id=node1 -port=5001 -client-port=6001 \
+  -advertise-client-addr=localhost:6001 \
+  -peers="node2:localhost:5002:6002,node3:localhost:5003:6003" &
+```
+
+## Client API
+
+```bash
+# Write — connect to any node; followers redirect you to the leader
+echo 'SET user:42 {"name":"zen","ts":1741276800}' | nc localhost 6001
+
+# Read — any node serves reads
+echo 'GET user:42' | nc localhost 6002
+
+# Delete
+echo 'DELETE user:42' | nc localhost 6001
+```
+
+**Protocol** — newline-terminated plaintext:
+
+| Command | Success | Error |
+|---------|---------|-------|
+| `GET <key>` | `VALUE <value>` | `NOT_FOUND` |
+| `SET <key> <value>` | `OK` | `ERR NOT_LEADER <tcp-addr>` |
+| `DELETE <key>` | `OK` | `ERR NOT_LEADER <tcp-addr>` |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────
+
+### SFU-Course-Tracker  ★0  |  TypeScript
+README: # 🎓 SFU Course Tracker
+
+**🌐 Live Demo:** [sfucourseplanner.me](https://www.sfucourseplanner.me) | [sfu-course-tracker.vercel.app](https://sfu-course-tracker.vercel.app)
+
+A full-stack web application for Simon Fraser University students to search, filter, and track course availability across **all 76 departments** with real-time data from official SFU APIs.
+
+## ✨ Features
+
+- 🔍 **Comprehensive Search**: Browse 3000+ courses across all 76 SFU departments
+- 📊 **Real-time Data**: Course information fetched directly from official SFU APIs
+- 🎯 **Smart Filtering**: Filter by department, course level, and availability
+- 📱 **Responsive Design**: Seamless experience on desktop, tablet, and mobile
+- 🔐 **User Authentication**: Secure JWT-based registration and login
+- 📈 **Course Details**: View prerequisites, schedules, and enrollment info
+- 🔔 **Seat Tracking**: Monitor course availability with watcher notifications
+
+## � Documentation
+
+- **[System Diagrams](DIAGRAMS.md)** - UML diagrams, ERD, architecture, and sequence diagrams
+- **[API Documentation](https://api.sfucourseplanner.me/docs)** - Interactive Swagger/OpenAPI docs
+
+## �🛠️ Tech Stack
+
+### Frontend
+- **React** with **TypeScript**
+- **Vite** - Lightning-fast build tool
+- **CSS3** - Modern responsive styling
+- **Deployed on Vercel** with automatic SSL
+- **Custom Domain**: sfucourseplanner.me (Namecheap)
+
+### Backend
+- **FastAPI** (Python 3.12) - High-performance async API
+- **SQLite** with **SQLAlchemy ORM**
+- **JWT Authentication** with bcrypt password hashing
+- **Nginx** - Reverse proxy with Let's Encrypt SSL
+- **Deployed on AWS EC2** with Docker
+- **API Domain**: api.sfucourseplanner.me
+
+### Infrastructure
+- **Docker & Docker Compose** - Containerized deployment
+- **GitHub Actions** - CI/CD pipeline
+- **Let's Encrypt** - Free SSL certificates
+- **Persistent Volumes** - Database preservation across deployments
+
+## 📁 Project Structure
+
+```
+SFU-Course-Tracker/
+├── backend/
+│   ├── main.py                  # FastAPI appli
 ## Features
 - **Raft consensus** — leader election, log replication, split-brain prevention
 - **Durable writes** — binary WAL with `fsync` on every record
