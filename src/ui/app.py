@@ -725,17 +725,17 @@ if nav == "Job Feed":
         )
 
     # ── Job feed ──
-    # Show jobs that belong to the current search (by ID), across all statuses.
-    # feed_job_ids is set when the user clicks "Find Jobs". On first load (no
-    # search yet) fall back to showing all DISCOVERED jobs.
+    # Always include both DISCOVERED and PENDING_REVIEW so that a job card's
+    # download button remains visible immediately after tailoring (before the
+    # user navigates away). Filter to feed_job_ids when a search has been done.
     _feed_ids: list[str] = st.session_state.get("feed_job_ids", [])
+    _all_repo_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)) +
+                      run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
     if _feed_ids:
-        _all_repo_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)) +
-                          run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
         _id_set = set(_feed_ids)
         _raw_jobs = [j for j in _all_repo_jobs if j.id in _id_set]
     else:
-        _raw_jobs = run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED))
+        _raw_jobs = _all_repo_jobs
     all_jobs = filter_jobs(_raw_jobs, selected_chip)
     all_jobs = filter_by_date(all_jobs, _date_opt)
     all_jobs = search_jobs(all_jobs, _search_q)
@@ -847,6 +847,7 @@ if nav == "Job Feed":
                                         pdf_bytes = fh.read()
                                     st.session_state[f"pdf_{job.id}"] = pdf_bytes
                                     st.session_state[f"qa_{job.id}"]  = result.q_and_a_responses
+                                    st.session_state[f"gaps_{job.id}"] = result.missing_skills
                                     st.session_state[f"autodownload_{job.id}"] = True
                                     # Persist tailored result to DB so it survives page refresh
                                     run_async(repo.save_tailored_result(
@@ -872,6 +873,7 @@ if nav == "Job Feed":
                             try:
                                 _db_ta = TailoredApplication.model_validate_json(_db_ai_json)
                                 st.session_state[f"qa_{job.id}"] = _db_ta.q_and_a_responses
+                                st.session_state[f"gaps_{job.id}"] = _db_ta.missing_skills
                             except Exception:
                                 pass
                     if f"pdf_{job.id}" in st.session_state:
@@ -896,6 +898,13 @@ if nav == "Job Feed":
                             key=f"dl_{job.id}",
                             use_container_width=True,
                         )
+                        # Skill Gaps — shown only when there are gaps to report
+                        _gaps = st.session_state.get(f"gaps_{job.id}", [])
+                        if _gaps:
+                            with st.expander(f"Skill Gaps ({len(_gaps)})", expanded=False):
+                                st.caption("These skills appear in the JD but are not in your ledger. Consider adding them.")
+                                for _g in _gaps:
+                                    st.markdown(f"- {_g}")
 
                     if st.button("Skip", key=f"skip_{job.id}", use_container_width=True):
                         run_async(repo.update_status(job.id, JobStatus.REJECTED))
@@ -1078,6 +1087,11 @@ elif nav == "My Applications":
                         elif lane_name == "Interview":
                             if st.button("✗ Reject", key=f"kanban_rej_iv_{job.id}", use_container_width=True):
                                 run_async(repo.update_status(job.id, JobStatus.REJECTED))
+                                st.rerun()
+
+                        elif lane_name == "Rejected":
+                            if st.button("↩ Restore", key=f"kanban_restore_{job.id}", use_container_width=True):
+                                run_async(repo.update_status(job.id, JobStatus.DISCOVERED))
                                 st.rerun()
 
                 st.markdown("</div>", unsafe_allow_html=True)
