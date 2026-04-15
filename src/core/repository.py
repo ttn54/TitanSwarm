@@ -63,3 +63,14 @@ class JobRepository(ABC):
     async def get_tailored_result(self, job_id: str, user_id: int = 1) -> Optional[Tuple[str, bytes, str | None]]:
         """Returns (ai_json, pdf_bytes, cover_letter) for a job, or None if not yet tailored."""
         pass
+
+    # ── Multi-tenant daemon support ──
+
+    @abstractmethod
+    async def get_all_user_targets(self) -> List[Tuple[int, str, str]]:
+        """
+        Returns a list of (user_id, pref_role, pref_location) for every user
+        who has a non-empty preferred role saved in their profile.
+        Used by the Sourcing Daemon to know who to scrape for.
+        """
+        pass

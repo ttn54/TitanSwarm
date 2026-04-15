@@ -50,7 +50,7 @@ def test_parse_targets_empty_strings_return_empty():
 
 @pytest.mark.asyncio
 async def test_run_concurrent_sweep_sums_saved_counts():
-    """Each (role, loc) sweep runs and total saved count is summed."""
+    """Each (user_id, role, loc) sweep runs and total saved count is summed."""
     mock_engine = AsyncMock()
     # Each run_sweep returns (saved_count, found_ids)
     mock_engine.run_sweep.side_effect = [
@@ -59,9 +59,9 @@ async def test_run_concurrent_sweep_sums_saved_counts():
         (0, []),
     ]
     targets = [
-        ("Software Engineer Intern", "Vancouver BC"),
-        ("Frontend Developer Intern", "Remote Canada"),
-        ("Backend Developer Intern", "Toronto ON"),
+        (1, "Software Engineer Intern", "Vancouver BC"),
+        (2, "Frontend Developer Intern", "Remote Canada"),
+        (3, "Backend Developer Intern", "Toronto ON"),
     ]
 
     total = await _run_concurrent_sweep(mock_engine, targets, results_wanted=25)
@@ -76,12 +76,12 @@ async def test_run_concurrent_sweep_passes_correct_args():
     mock_engine = AsyncMock()
     mock_engine.run_sweep.return_value = (1, ["x"])
 
-    targets = [("SWE Intern", "Vancouver BC"), ("Frontend Intern", "Remote")]
+    targets = [(1, "SWE Intern", "Vancouver BC"), (2, "Frontend Intern", "Remote")]
     await _run_concurrent_sweep(mock_engine, targets, results_wanted=30)
 
     calls = mock_engine.run_sweep.call_args_list
-    assert calls[0].kwargs == {"role": "SWE Intern", "location": "Vancouver BC", "results_wanted": 30}
-    assert calls[1].kwargs == {"role": "Frontend Intern", "location": "Remote", "results_wanted": 30}
+    assert calls[0].kwargs == {"role": "SWE Intern", "location": "Vancouver BC", "results_wanted": 30, "user_id": 1}
+    assert calls[1].kwargs == {"role": "Frontend Intern", "location": "Remote", "results_wanted": 30, "user_id": 2}
 
 
 @pytest.mark.asyncio
@@ -93,8 +93,8 @@ async def test_run_concurrent_sweep_one_failure_does_not_crash_others():
         (4, ["a", "b", "c", "d"]),           # sweep 2 succeeds
     ]
     targets = [
-        ("SWE Intern", "Vancouver BC"),
-        ("Frontend Intern", "Remote"),
+        (1, "SWE Intern", "Vancouver BC"),
+        (2, "Frontend Intern", "Remote"),
     ]
 
     total = await _run_concurrent_sweep(mock_engine, targets, results_wanted=25)

@@ -74,3 +74,8 @@ class MockUIRepository(JobRepository):
 
     async def get_tailored_result(self, job_id: str, user_id: int = 1) -> Optional[Tuple[str, bytes, str | None]]:
         return self._tailored.get(job_id)
+
+    async def get_all_user_targets(self) -> list[tuple[int, str, str]]:
+        if self._profile and self._profile.pref_role:
+            return [(1, self._profile.pref_role, self._profile.pref_location or "")]
+        return []

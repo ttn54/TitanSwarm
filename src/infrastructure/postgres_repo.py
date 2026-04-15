@@ -425,3 +425,15 @@ class PostgresRepository(JobRepository):
             if model:
                 return (model.ai_json, model.pdf_bytes, model.cover_letter_text)
             return None
+
+    async def get_all_user_targets(self) -> list[tuple[int, str, str]]:
+        """
+        Returns (user_id, pref_role, pref_location) for every user whose
+        profile has a non-empty pref_role.  Used by the Sourcing Daemon.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserProfileModel).where(UserProfileModel.pref_role != "")
+            )
+            rows = result.scalars().all()
+            return [(row.user_id, row.pref_role, row.pref_location or "") for row in rows]

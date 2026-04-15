@@ -35,65 +35,69 @@ def _parse_targets(roles_str: str, locs_str: str) -> list[tuple[str, str]]:
 
 async def _run_concurrent_sweep(
     engine: SourcingEngine,
-    targets: list[tuple[str, str]],
+    targets: list[tuple[int, str, str]],
     results_wanted: int,
 ) -> int:
     """
-    Run all (role, location) pairs concurrently via asyncio.gather.
+    Run all (user_id, role, location) triples concurrently via asyncio.gather.
     Individual sweep failures are caught and logged — they do not cancel
     other sweeps. Returns the total number of new jobs saved across all sweeps.
     """
     if not targets:
         return 0
 
-    async def _safe_sweep(role: str, location: str) -> int:
+    async def _safe_sweep(user_id: int, role: str, location: str) -> int:
         try:
             saved, _ = await engine.run_sweep(
-                role=role, location=location, results_wanted=results_wanted
+                role=role, location=location, results_wanted=results_wanted,
+                user_id=user_id,
             )
-            logger.info(f"Sweep done: '{role}' in '{location}' → {saved} new jobs")
+            logger.info(f"Sweep done: '{role}' in '{location}' (user {user_id}) → {saved} new jobs")
             return saved
         except Exception as exc:
-            logger.error(f"Sweep failed for '{role}' in '{location}': {exc}")
+            logger.error(f"Sweep failed for '{role}' in '{location}' (user {user_id}): {exc}")
             return 0
 
-    counts = await asyncio.gather(*[_safe_sweep(role, loc) for role, loc in targets])
+    counts = await asyncio.gather(*[_safe_sweep(uid, role, loc) for uid, role, loc in targets])
     return sum(counts)
 
 
 async def main():
     dsn = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///titanswarm.db")
     interval_hours = int(os.getenv("SCRAPER_INTERVAL_HOURS", "12"))
-    results_wanted = int(os.getenv("SCRAPER_RESULTS_WANTED", "25"))
-
-    # Backward-compatible env vars:
-    #   SCRAPER_ROLES  (comma-separated)  falls back to legacy SCRAPER_ROLE
-    #   SCRAPER_LOCATIONS (comma-separated) falls back to legacy SCRAPER_LOCATION
-    roles_str = os.getenv(
-        "SCRAPER_ROLES",
-        os.getenv("SCRAPER_ROLE", "Software Engineer Intern"),
-    )
-    locs_str = os.getenv(
-        "SCRAPER_LOCATIONS",
-        os.getenv("SCRAPER_LOCATION", "Vancouver, BC"),
-    )
-
-    targets = _parse_targets(roles_str, locs_str)
-    if not targets:
-        logger.error("No valid SCRAPER_ROLES / SCRAPER_LOCATIONS configured. Exiting.")
-        return
-
-    logger.info(f"Initializing Sourcing Daemon — {len(targets)} target(s): {targets}")
+    results_wanted = int(os.getenv("SCRAPER_RESULTS_WANTED", "50"))
 
     repo = PostgresRepository(dsn)
     await repo.init_db()
     engine = SourcingEngine(repository=repo, interval_hours=interval_hours)
 
+    # Env-var fallback targets (used when no users have saved preferences yet)
+    roles_str = os.getenv("SCRAPER_ROLES", os.getenv("SCRAPER_ROLE", "Software Engineer Intern"))
+    locs_str  = os.getenv("SCRAPER_LOCATIONS", os.getenv("SCRAPER_LOCATION", "Vancouver, BC"))
+    _fallback_targets = _parse_targets(roles_str, locs_str)
+    # Convert legacy (role, loc) pairs to (user_id=1, role, loc) triples
+    _fallback_triples: list[tuple[int, str, str]] = [(1, r, l) for r, l in _fallback_targets]
+
+    logger.info("Initializing multi-tenant Sourcing Daemon")
+
     try:
         while True:
-            logger.info(f"Starting concurrent sweep across {len(targets)} target(s)...")
-            total_saved = await _run_concurrent_sweep(engine, targets, results_wanted)
-            logger.info(f"All sweeps complete. {total_saved} new jobs saved. Sleeping {interval_hours}h...")
+            # ── Pull live targets from DB ──────────────────────────────────
+            db_targets: list[tuple[int, str, str]] = await repo.get_all_user_targets()
+            if db_targets:
+                targets = db_targets
+                logger.info(f"Using {len(targets)} DB user target(s)")
+            else:
+                targets = _fallback_triples
+                logger.info(f"No user profiles found — using {len(targets)} env-var fallback target(s)")
+
+            if not targets:
+                logger.warning("No targets configured. Sleeping until next interval.")
+            else:
+                logger.info(f"Starting concurrent sweep across {len(targets)} target(s)…")
+                total_saved = await _run_concurrent_sweep(engine, targets, results_wanted)
+                logger.info(f"All sweeps complete. {total_saved} new jobs saved. Sleeping {interval_hours}h…")
+
             await asyncio.sleep(interval_hours * 3600)
     except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("Daemon received shutdown signal. Exiting.")

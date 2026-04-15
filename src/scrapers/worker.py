@@ -42,7 +42,7 @@ class SourcingEngine:
 
         return await loop.run_in_executor(None, _scrape)
 
-    async def run_sweep(self, role: str, location: str, results_wanted: int = 25) -> tuple[int, list[str]]:
+    async def run_sweep(self, role: str, location: str, results_wanted: int = 25, user_id: int = 1) -> tuple[int, list[str]]:
         """
         Executes a scraping sweep utilizing jobspy, converts the raw DataFrame
         to Pydantic Job models, deduplicates against the repository, and persists
@@ -114,7 +114,7 @@ class SourcingEngine:
                 continue
 
             # Deduplication: skip only if the existing record has a real description.
-            existing = await self.repository.get_job(job_id)
+            existing = await self.repository.get_job(job_id, user_id=user_id)
             if existing is not None and existing.job_description.strip() not in _BAD_DESC:
                 logger.debug(f"Skipping duplicate job: {job_id}")
                 continue
@@ -153,7 +153,7 @@ class SourcingEngine:
                 date_posted=job_date,
             )
 
-            await self.repository.save_job(job)
+            await self.repository.save_job(job, user_id=user_id)
             saved_count += 1
             logger.info(f"Saved new job: {job.role} at {job.company}")
 

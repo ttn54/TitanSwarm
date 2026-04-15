@@ -52,5 +52,8 @@ def test_valid_repository_implementation():
         async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes, str | None]]:
             return None
 
+        async def get_all_user_targets(self) -> list[tuple[int, str, str]]:
+            return []
+
     repo = GoodRepo()
     assert isinstance(repo, JobRepository)
