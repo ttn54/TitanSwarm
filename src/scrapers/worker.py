@@ -7,6 +7,19 @@ from src.core.models import Job, JobStatus
 
 logger = logging.getLogger(__name__)
 
+# Canadian province/territory markers used to auto-select country_indeed
+_CA_MARKERS = {", bc", ", on", ", ab", ", qc", ", mb", ", sk", ", ns", ", nb",
+               ", nl", ", pe", ", nt", ", yt", ", nu", "canada"}
+
+
+def _detect_country_indeed(location: str) -> str:
+    """Return 'canada' if the location string looks Canadian, else 'usa'."""
+    loc = location.lower()
+    if any(m in loc for m in _CA_MARKERS):
+        return "canada"
+    return "usa"
+
+
 class SourcingEngine:
     def __init__(self, repository: Any, interval_hours: int = 12):
         self.repository = repository
@@ -15,6 +28,7 @@ class SourcingEngine:
     async def _scrape_df(self, role: str, location: str, results_wanted: int) -> pd.DataFrame:
         """Run the blocking JobSpy scrape in a thread pool and return the raw DataFrame."""
         loop = asyncio.get_event_loop()
+        country = _detect_country_indeed(location)
 
         def _scrape() -> pd.DataFrame:
             return scrape_jobs(
@@ -23,6 +37,7 @@ class SourcingEngine:
                 location=location,
                 results_wanted=results_wanted,
                 linkedin_fetch_description=True,
+                country_indeed=country,
             )
 
         return await loop.run_in_executor(None, _scrape)
