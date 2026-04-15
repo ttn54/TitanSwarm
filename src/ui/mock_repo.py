@@ -38,39 +38,39 @@ class MockUIRepository(JobRepository):
         )
         self.jobs[submitted_job.id] = submitted_job
 
-    async def save_job(self, job: Job) -> bool:
+    async def save_job(self, job: Job, user_id: int = 1) -> bool:
         self.jobs[job.id] = job
         return True
 
-    async def get_job(self, job_id: str) -> Optional[Job]:
+    async def get_job(self, job_id: str, user_id: int = 1) -> Optional[Job]:
         return self.jobs.get(job_id)
 
-    async def update_status(self, job_id: str, status: JobStatus):
+    async def update_status(self, job_id: str, status: JobStatus, user_id: int = 1):
         if job_id in self.jobs:
             self.jobs[job_id].status = status
 
-    async def get_jobs_by_status(self, status: JobStatus) -> List[Job]:
+    async def get_jobs_by_status(self, status: JobStatus, user_id: int = 1) -> List[Job]:
         return [j for j in self.jobs.values() if j.status == status]
     
-    async def count_all(self) -> int:
+    async def count_all(self, user_id: int = 1) -> int:
         return len(self.jobs)
 
-    async def delete_jobs_by_status(self, status: JobStatus) -> int:
+    async def delete_jobs_by_status(self, status: JobStatus, user_id: int = 1) -> int:
         to_delete = [jid for jid, j in self.jobs.items() if j.status == status]
         for jid in to_delete:
             del self.jobs[jid]
         return len(to_delete)
 
-    async def save_profile(self, profile: UserProfile) -> bool:
+    async def save_profile(self, profile: UserProfile, user_id: int = 1) -> bool:
         self._profile = profile
         return True
 
-    async def get_profile(self) -> Optional[UserProfile]:
+    async def get_profile(self, user_id: int = 1) -> Optional[UserProfile]:
         return self._profile
 
-    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes, cover_letter: str | None = None) -> bool:
+    async def save_tailored_result(self, job_id: str, ai_json: str, pdf_bytes: bytes, cover_letter: str | None = None, user_id: int = 1) -> bool:
         self._tailored[job_id] = (ai_json, pdf_bytes, cover_letter)
         return True
 
-    async def get_tailored_result(self, job_id: str) -> Optional[Tuple[str, bytes, str | None]]:
+    async def get_tailored_result(self, job_id: str, user_id: int = 1) -> Optional[Tuple[str, bytes, str | None]]:
         return self._tailored.get(job_id)
