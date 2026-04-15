@@ -1,9 +1,76 @@
 from typing import Any
 import asyncio
 import logging
+import re
 import pandas as pd
 from jobspy import scrape_jobs
 from src.core.models import Job, JobStatus
+
+# ── Salary description fallback ───────────────────────────────────────────────
+# LinkedIn hides structured salary data from scrapers.  This regex scans the
+# raw job description text for embedded salary ranges like:
+#   "89,700.00 - 149,800.00 CAD annually"
+#   "$21 - $25 an hour"
+#   "$80,000 - $120,000 per year"
+_SALARY_RANGE_RE = re.compile(
+    r'(CA\$|C\$|\$)?\s*([\d,]+(?:\.\d+)?)\s*[-–]\s*(CA\$|C\$|\$)?\s*([\d,]+(?:\.\d+)?)'
+    r'([^\n]{0,80})',   # rest of the line — scanned for currency + interval
+    re.IGNORECASE,
+)
+
+
+def _extract_salary_from_description(
+    description: str,
+) -> tuple[float | None, float | None, str, str]:
+    """
+    Scan *description* for an embedded salary range.
+    Returns (salary_min, salary_max, currency, interval).
+    Returns (None, None, "", "") when no recognisable pattern is found.
+    """
+    if not description:
+        return None, None, "", ""
+
+    # LinkedIn descriptions are stored with markdown escapes (e.g. \\- and \\.)
+    # Unescape them so the regex can match plain numbers and hyphens.
+    desc = re.sub(r'\\(.)', r'\1', description)
+
+    m = _SALARY_RANGE_RE.search(desc)
+    if not m:
+        return None, None, "", ""
+
+    prefix1, num1, prefix2, num2, rest = m.groups()
+
+    try:
+        sal_min = float(num1.replace(",", ""))
+        sal_max = float(num2.replace(",", ""))
+    except (ValueError, AttributeError):
+        return None, None, "", ""
+
+    # Guard: ignore small numbers that are not salaries (e.g. "3-5 years")
+    if sal_min < 10 or sal_max < 10:
+        return None, None, "", ""
+
+    # Currency: check prefixes first, then rest of line
+    currency_ctx = (prefix1 or "") + (prefix2 or "") + (rest or "")
+    if re.search(r'CAD|CA\$|C\$', currency_ctx, re.IGNORECASE):
+        currency = "CAD"
+    elif re.search(r'\$|USD', currency_ctx, re.IGNORECASE):
+        currency = "USD"
+    else:
+        currency = ""
+
+    # Interval: scan rest of line
+    rest_l = (rest or "").lower()
+    if re.search(r'annual|per\s+year|a\s+year|/yr\b|/year\b', rest_l):
+        interval = "yearly"
+    elif re.search(r'hour|/hr\b|/hour\b|an\s+hour', rest_l):
+        interval = "hourly"
+    elif re.search(r'month|/mo\b|/month\b', rest_l):
+        interval = "monthly"
+    else:
+        interval = ""
+
+    return sal_min, sal_max, currency, interval
 
 logger = logging.getLogger(__name__)
 
@@ -113,11 +180,14 @@ class SourcingEngine:
                 logger.debug(f"Skipping job {job_id}: no description")
                 continue
 
-            # Deduplication: skip only if the existing record has a real description.
+            # Deduplication: track whether this is a new record so we can
+            # increment saved_count correctly.  We always call save_job so the
+            # UPSERT can refresh enrichment fields (salary, description, etc.)
+            # for jobs that were scraped before those columns existed.
+            # We only consider a job "new" if it wasn't already in the DB with
+            # a real description.
             existing = await self.repository.get_job(job_id, user_id=user_id)
-            if existing is not None and existing.job_description.strip() not in _BAD_DESC:
-                logger.debug(f"Skipping duplicate job: {job_id}")
-                continue
+            is_new = existing is None or existing.job_description.strip() in _BAD_DESC
 
             # Extract skills list from JobSpy 'skills' column (may be None or a list)
             raw_skills = row.get("skills")
@@ -141,6 +211,26 @@ class SourcingEngine:
             else:
                 job_date = ""
 
+            def _safe_float(val) -> float | None:
+                try:
+                    f = float(val)
+                    return None if pd.isna(f) else f
+                except (TypeError, ValueError):
+                    return None
+
+            salary_min      = _safe_float(row.get("min_amount"))
+            salary_max      = _safe_float(row.get("max_amount"))
+            salary_currency = str(row.get("currency") or "").strip()
+            salary_interval = str(row.get("interval") or "").strip()
+
+            # Fallback: LinkedIn embeds salary in the description body but does
+            # not expose it as structured data.  Parse it out when JobSpy gives
+            # us nothing.
+            if salary_min is None and salary_max is None:
+                salary_min, salary_max, salary_currency, salary_interval = (
+                    _extract_salary_from_description(_desc_str)
+                )
+
             job = Job(
                 id=job_id,
                 company=company,
@@ -151,10 +241,17 @@ class SourcingEngine:
                 url=str(row.get("job_url")),
                 location=job_location,
                 date_posted=job_date,
+                salary_min=salary_min,
+                salary_max=salary_max,
+                salary_currency=salary_currency,
+                salary_interval=salary_interval,
             )
 
             await self.repository.save_job(job, user_id=user_id)
-            saved_count += 1
-            logger.info(f"Saved new job: {job.role} at {job.company}")
+            if is_new:
+                saved_count += 1
+                logger.info(f"Saved new job: {job.role} at {job.company}")
+            else:
+                logger.debug(f"Refreshed enrichment for existing job: {job_id}")
 
         return saved_count, all_found_ids
