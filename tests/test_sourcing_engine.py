@@ -118,9 +118,11 @@ async def test_sourcing_engine_skips_existing_jobs(mock_scrape_jobs):
 
     count, found_ids = await engine.run_sweep(role="Software Engineer", location="Vancouver", results_wanted=1)
 
-    # The repository should NOT save the job if it already exists
+    # The repository MUST still call save_job so the UPSERT can refresh
+    # enrichment fields (salary, description) for the existing record.
+    # saved_count must be 0 because the job is not new.
     mock_repo.get_job.assert_called_once_with("ind-123", user_id=1)
-    assert mock_repo.save_job.call_count == 0
+    assert mock_repo.save_job.call_count == 1
     assert count == 0
     assert found_ids == ["ind-123"]  # Still in found list even if duplicate
 
