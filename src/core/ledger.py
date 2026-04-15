@@ -12,6 +12,22 @@ class LedgerManager:
         self.chunks = []
         self.model = None
 
+    @classmethod
+    def from_content(cls, content: str, db_path: str = ":memory:") -> "LedgerManager":
+        """
+        Create a LedgerManager that operates on in-memory content rather than
+        a file on disk.  Used in multi-tenant mode where ledger content comes
+        from the database instead of data/ledger.md.
+        """
+        import tempfile, os
+        # Write content to a temp file so build_index() can read it
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        tmp.write(content)
+        tmp.close()
+        mgr = cls(ledger_path=tmp.name, db_path=db_path)
+        mgr._tmp_path = tmp.name   # keep reference so caller can clean up if needed
+        return mgr
+
     def _lazy_load_model(self):
         if self.model is None:
             # We use a tiny, fast model locally so we don't have to pay for OpenAI API calls during indexing
