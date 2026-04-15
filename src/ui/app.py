@@ -648,11 +648,21 @@ pdf_gen = st.session_state.pdf_gen
 # st_model is already loaded above — just alias it for use in match scoring
 st_model = st.session_state.st_model
 
-# Cache resume text for match scoring (avoids re-reading file every rerun)
+# Cache resume text for match scoring (avoids re-reading DB every rerun)
 if "resume_text_cache" not in st.session_state:
     from src.core.ai import _parse_ledger_as_resume
-    _lp_match = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-    st.session_state.resume_text_cache = _parse_ledger_as_resume(_lp_match)
+    _ledger_content_for_cache = run_async(st.session_state.repo.get_ledger(_USER_ID))
+    if _ledger_content_for_cache:
+        import tempfile as _tmpfile
+        _tmp = _tmpfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        _tmp.write(_ledger_content_for_cache)
+        _tmp.close()
+        st.session_state.resume_text_cache = _parse_ledger_as_resume(_tmp.name)
+        import os as _os; _os.unlink(_tmp.name)
+    else:
+        # Fallback to file for first-run before any ledger saved
+        _lp_match = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
+        st.session_state.resume_text_cache = _parse_ledger_as_resume(_lp_match) if os.path.exists(_lp_match) else ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -896,8 +906,18 @@ if nav == "Job Feed":
                             with st.spinner(f"Tailoring resume for {job.company}… (may retry if Gemini is busy)"):
                                 try:
                                     result: TailoredApplication = run_async(tailor.tailor_application(job))
-                                    _ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-                                    _structured  = _parse_ledger_for_pdf(_ledger_path)
+                                    # Load ledger from DB for this user; fall back to file if empty
+                                    _db_ledger_content = run_async(repo.get_ledger(_USER_ID))
+                                    if _db_ledger_content:
+                                        import tempfile as _pdf_tmp
+                                        _ltmp = _pdf_tmp.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+                                        _ltmp.write(_db_ledger_content)
+                                        _ltmp.close()
+                                        _structured = _parse_ledger_for_pdf(_ltmp.name)
+                                        import os as _os2; _os2.unlink(_ltmp.name)
+                                    else:
+                                        _fallback_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
+                                        _structured = _parse_ledger_for_pdf(_fallback_path)
                                     # Always read latest form values — avoids "Your Name" when
                                     # auto-fill populated the keys but Save Profile wasn't clicked
                                     _pi = st.session_state.profile
@@ -1342,14 +1362,21 @@ elif nav == "Preferences":
                         from src.core.github_enricher import fetch_github_context
                         _gh_text = fetch_github_context(_gh_handle)
                     if _gh_text:
-                        _ledger_path = os.path.join(
-                            os.path.dirname(__file__), "..", "..", "data", "ledger.md"
-                        )
-                        _lm_gh = LedgerManager(ledger_path=_ledger_path, db_path="data/faiss.index")
-                        _lm_gh.write_github_section(_gh_text)
-                        # Rebuild the live tailor index so new repos are immediately searchable
+                        # Load current DB ledger, replace/append GitHub section, save back
+                        _cur_ledger = run_async(repo.get_ledger(_USER_ID))
+                        _gh_marker = "## GitHub Projects:"
+                        if _gh_marker in _cur_ledger:
+                            _gh_base = _cur_ledger.split(_gh_marker)[0].rstrip()
+                        else:
+                            _gh_base = _cur_ledger.rstrip()
+                        _new_gh_ledger = _gh_base + f"\n\n{_gh_marker}\n\n{_gh_text}"
+                        run_async(repo.save_ledger(_USER_ID, _new_gh_ledger))
+                        # Rebuild the live tailor index from updated DB content
                         if st.session_state.tailor:
-                            st.session_state.tailor.ledger.build_index()
+                            _lm_gh = LedgerManager.from_content(_new_gh_ledger, db_path="data/faiss.index")
+                            _lm_gh.model = st.session_state.st_model
+                            _lm_gh.build_index()
+                            st.session_state.tailor.ledger = _lm_gh
                         # Invalidate the resume text cache so tailor picks up new context
                         st.session_state.pop("resume_text_cache", None)
                         st.toast("GitHub repos synced into AI context!", icon="🐙")
@@ -1507,15 +1534,18 @@ elif nav == "Preferences":
                         )
                         st.session_state.profile = _upload_profile
                         run_async(repo.save_profile(_upload_profile, user_id=_USER_ID))
-                        # ── Write to ledger (replace any previous import) ──────
-                        ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-                        existing = open(ledger_path, encoding="utf-8").read()
-                        marker = "## Imported Resume:"
-                        base = existing.split(marker)[0].rstrip()
-                        with open(ledger_path, "w", encoding="utf-8") as f:
-                            f.write(base + f"\n\n{marker} {uploaded.name}\n\n{text}")
+                        # ── Write to DB ledger (replace any previous import) ──
+                        _existing_ledger = run_async(repo.get_ledger(_USER_ID))
+                        _marker = "## Imported Resume:"
+                        _base = _existing_ledger.split(_marker)[0].rstrip() if _existing_ledger else ""
+                        _new_ledger = _base + f"\n\n{_marker} {uploaded.name}\n\n{text}"
+                        run_async(repo.save_ledger(_USER_ID, _new_ledger))
+                        # Rebuild the live tailor index from new DB content
                         if st.session_state.tailor:
-                            st.session_state.tailor.ledger.build_index()
+                            _lm_new = LedgerManager.from_content(_new_ledger, db_path="data/faiss.index")
+                            _lm_new.model = st.session_state.st_model
+                            _lm_new.build_index()
+                            st.session_state.tailor.ledger = _lm_new
                         # Clear match-score cache so Job Feed reflects the new resume immediately
                         st.session_state.pop("resume_text_cache", None)
                         st.toast(f"{uploaded.name} ingested ✓  Profile fields auto-filled above.", icon="✅")
