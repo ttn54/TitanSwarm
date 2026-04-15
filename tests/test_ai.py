@@ -2,7 +2,7 @@ import pytest
 import os
 from unittest.mock import patch, AsyncMock, MagicMock
 from src.core.models import Job, JobStatus, TailoredApplication, TailoredProject, TailoredExperience
-from src.core.ai import AITailor, _merge_skill_categories
+from src.core.ai import AITailor, _merge_skill_categories, _deduplicate_languages, _filter_missing_skills
 from src.core.ledger import LedgerManager
 
 @pytest.fixture
@@ -554,3 +554,81 @@ def test_system_prompt_languages_rule(tmp_path, sample_job):
     assert "all" in source_lower and "language" in source_lower, (
         "System prompt must instruct LLM to list ALL languages from context."
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _deduplicate_languages unit tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_deduplicate_removes_language_from_other_category():
+    """If Python appears in both Languages and Backend & Systems,
+    it must be removed from Backend & Systems."""
+    skills = {
+        "Languages": ["Python", "Java", "Go"],
+        "Backend & Systems": ["Python", "FastAPI", "RESTful APIs"],
+    }
+    result = _deduplicate_languages(skills)
+    assert "Python" not in result["Backend & Systems"]
+    assert "Python" in result["Languages"]
+
+
+def test_deduplicate_keeps_non_language_skills_in_their_category():
+    """Skills that are NOT in Languages must stay in their category."""
+    skills = {
+        "Languages": ["Python", "Java"],
+        "Backend & Systems": ["FastAPI", "gRPC"],
+    }
+    result = _deduplicate_languages(skills)
+    assert "FastAPI" in result["Backend & Systems"]
+    assert "gRPC" in result["Backend & Systems"]
+
+
+def test_deduplicate_removes_empty_categories_after_dedup():
+    """If dedup empties a non-Languages category, it must be dropped."""
+    skills = {
+        "Languages": ["Python"],
+        "Some Other": ["Python"],   # entirely a duplicate
+    }
+    result = _deduplicate_languages(skills)
+    assert "Some Other" not in result
+
+
+def test_deduplicate_preserves_languages_category_unchanged():
+    """Languages category itself must never be modified by dedup."""
+    skills = {
+        "Languages": ["Python", "Java", "C++", "Go"],
+        "Backend & Systems": ["Python", "FastAPI"],
+    }
+    result = _deduplicate_languages(skills)
+    assert result["Languages"] == ["Python", "Java", "C++", "Go"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _filter_missing_skills unit tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_filter_missing_skills_removes_skill_present_in_context():
+    """Java is in the resume context → must NOT appear in missing_skills."""
+    context = "Languages: Python, Go, Java, C, C++, TypeScript"
+    missing = ["Ansible", "Java", "K8S"]
+    result = _filter_missing_skills(missing, context)
+    assert "Java" not in result
+
+
+def test_filter_missing_skills_keeps_truly_absent_skills():
+    """Ansible is NOT in the context → must stay in missing_skills."""
+    context = "Languages: Python, Go, Java, Docker"
+    missing = ["Ansible", "K8S", "MySQL"]
+    result = _filter_missing_skills(missing, context)
+    assert "Ansible" in result
+    assert "K8S" in result
+    assert "MySQL" in result
+
+
+def test_filter_missing_skills_case_insensitive():
+    """Match must be case-insensitive (e.g. 'docker' vs 'Docker')."""
+    context = "Tools: Git, docker, Pytest"
+    missing = ["Docker", "Ansible"]
+    result = _filter_missing_skills(missing, context)
+    assert "Docker" not in result
+    assert "Ansible" in result

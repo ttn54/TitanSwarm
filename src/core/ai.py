@@ -14,8 +14,7 @@ _MERGE_MAP = [
     ("Mobile Development",  "Backend & Systems"),
 ]
 
-def _merge_skill_categories(
-    skills: dict[str, list[str]],
+def _merge_skill_categories(    skills: dict[str, list[str]],
     max_categories: int = 4,
 ) -> dict[str, list[str]]:
     """
@@ -54,6 +53,40 @@ def _merge_skill_categories(
 
     return result
 
+
+def _deduplicate_languages(skills: dict[str, list[str]]) -> dict[str, list[str]]:
+    """
+    Remove from every non-Languages category any skill that already appears
+    in the Languages category (case-insensitive). Drop categories that become
+    empty after dedup.
+    """
+    lang_set = {s.lower() for s in skills.get("Languages", [])}
+    result: dict[str, list[str]] = {}
+    for cat, skill_list in skills.items():
+        if cat == "Languages":
+            result[cat] = skill_list
+        else:
+            cleaned = [s for s in skill_list if s.lower() not in lang_set]
+            if cleaned:
+                result[cat] = cleaned
+    return result
+
+
+def _filter_missing_skills(missing: list[str], resume_text: str) -> list[str]:
+    """
+    Remove from missing_skills any entry that already appears in the candidate's
+    resume/ledger context. Uses word-boundary matching for short tokens and
+    case-insensitive substring for multi-word phrases.
+    """
+    text_lower = resume_text.lower()
+
+    def _in_context(skill: str) -> bool:
+        sl = skill.lower()
+        if " " in sl:
+            return sl in text_lower
+        return bool(re.search(r"\b" + re.escape(sl) + r"\b", text_lower))
+
+    return [s for s in missing if not _in_context(s)]
 
 
 def _load_dotenv():
@@ -404,6 +437,10 @@ class AITailor:
         result.skills_to_highlight = _merge_skill_categories(
             result.skills_to_highlight, max_categories=4
         )
+        # Remove Languages skills that leaked into other categories (e.g. Python in Backend)
+        result.skills_to_highlight = _deduplicate_languages(result.skills_to_highlight)
+        # Remove false positives from missing_skills (skills the candidate already has)
+        result.missing_skills = _filter_missing_skills(result.missing_skills, resume_text)
         return result
 
     async def _call_llm_text(self, prompt: str) -> str:
