@@ -3,7 +3,7 @@ import json
 import logging
 from typing import List, Optional, Tuple
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy import String, Text, LargeBinary, Integer, Enum as SQLEnum, select, func
+from sqlalchemy import String, Text, LargeBinary, Integer, Float, Enum as SQLEnum, select, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
@@ -46,6 +46,10 @@ class JobModel(Base):
     location: Mapped[str] = mapped_column(String, default="")
     date_posted: Mapped[str] = mapped_column(String, default="")
     user_id: Mapped[int] = mapped_column(Integer, default=1)
+    salary_min: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    salary_max: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    salary_currency: Mapped[str] = mapped_column(String, default="")
+    salary_interval: Mapped[str] = mapped_column(String, default="")
 
     def to_pydantic(self) -> Job:
         return Job(
@@ -59,6 +63,10 @@ class JobModel(Base):
             custom_questions=json.loads(self.custom_questions) if self.custom_questions else [],
             location=self.location or "",
             date_posted=self.date_posted or "",
+            salary_min=self.salary_min,
+            salary_max=self.salary_max,
+            salary_currency=self.salary_currency or "",
+            salary_interval=self.salary_interval or "",
         )
 
 
@@ -127,11 +135,15 @@ class PostgresRepository(JobRepository):
     async def _ensure_columns(self):
         """Adds columns that may be missing from an older DB schema."""
         new_columns = [
-            ("jobs",             "location",    "TEXT DEFAULT ''"),
-            ("jobs",             "date_posted",  "TEXT DEFAULT ''"),
-            ("jobs",             "user_id",      "INTEGER DEFAULT 1"),
-            ("user_profile",     "user_id",      "INTEGER DEFAULT 1"),
-            ("tailored_results", "user_id",      "INTEGER DEFAULT 1"),
+            ("jobs",             "location",        "TEXT DEFAULT ''"),
+            ("jobs",             "date_posted",      "TEXT DEFAULT ''"),
+            ("jobs",             "user_id",          "INTEGER DEFAULT 1"),
+            ("jobs",             "salary_min",       "REAL"),
+            ("jobs",             "salary_max",       "REAL"),
+            ("jobs",             "salary_currency",  "TEXT DEFAULT ''"),
+            ("jobs",             "salary_interval",  "TEXT DEFAULT ''"),
+            ("user_profile",     "user_id",          "INTEGER DEFAULT 1"),
+            ("tailored_results", "user_id",          "INTEGER DEFAULT 1"),
         ]
         async with self.engine.begin() as conn:
             for table, col, col_def in new_columns:
@@ -245,19 +257,26 @@ class PostgresRepository(JobRepository):
                 "location": job.location or "",
                 "date_posted": job.date_posted or "",
                 "user_id": user_id,
+                "salary_min": job.salary_min,
+                "salary_max": job.salary_max,
+                "salary_currency": job.salary_currency or "",
+                "salary_interval": job.salary_interval or "",
             }
 
+            # 'status' is excluded from set_ so that a re-scraped job never
+            # resets a SUBMITTED/INTERVIEW/REJECTED record back to DISCOVERED.
+            _immutable = {'id', 'status'}
             if self.is_postgres:
                 stmt = postgres_insert(JobModel).values(**stmt_params)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=['id'],
-                    set_={k: v for k, v in stmt_params.items() if k != 'id'}
+                    set_={k: v for k, v in stmt_params.items() if k not in _immutable}
                 )
             else:
                 stmt = sqlite_insert(JobModel).values(**stmt_params)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=['id'],
-                    set_={k: v for k, v in stmt_params.items() if k != 'id'}
+                    set_={k: v for k, v in stmt_params.items() if k not in _immutable}
                 )
 
             try:

@@ -21,6 +21,24 @@ class Job(BaseModel):
     url: str
     location: str = ""
     date_posted: str = ""
+    salary_min: float | None = None
+    salary_max: float | None = None
+    salary_currency: str = ""
+    salary_interval: str = ""
+
+
+def format_salary(job: "Job") -> str | None:
+    """Return a human-readable salary string, or None if no salary data."""
+    if job.salary_min is None and job.salary_max is None:
+        return None
+    symbol = "CA$" if (job.salary_currency or "").upper() == "CAD" else "$"
+    _interval_map = {"yearly": "/yr", "hourly": "/hr", "monthly": "/mo"}
+    suffix = _interval_map.get((job.salary_interval or "").lower(), "")
+    if job.salary_min is not None and job.salary_max is not None:
+        return f"{symbol}{job.salary_min:,.0f} \u2013 {symbol}{job.salary_max:,.0f}{suffix}"
+    if job.salary_max is not None:
+        return f"Up to {symbol}{job.salary_max:,.0f}{suffix}"
+    return f"From {symbol}{job.salary_min:,.0f}{suffix}"
 
 class TailoredProject(BaseModel):
     title: str = Field(..., description="Project name, e.g. 'TitanStore'")

@@ -8,7 +8,7 @@ from datetime import date as _date, timedelta
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from src.core.models import Job, JobStatus, UserProfile, TailoredApplication
+from src.core.models import Job, JobStatus, UserProfile, TailoredApplication, format_salary
 from src.core.matching import compute_match_score
 from src.infrastructure.postgres_repo import PostgresRepository
 from src.scrapers.worker import SourcingEngine
@@ -914,6 +914,7 @@ if nav == "Job Feed":
                             <div class="jcard-meta">
                                 {f"📍 {job.location} &nbsp;·&nbsp;" if job.location else ""}
                                 {f"🕐 {job.date_posted} &nbsp;·&nbsp;" if job.date_posted else ""}
+                                {f"💰 {format_salary(job)} &nbsp;·&nbsp;" if format_salary(job) else "💰 No salary posted &nbsp;·&nbsp;"}
                                 🔗 <a href="{job.url}" target="_blank"
                                    style="color:#6366f1;text-decoration:none;">{job.url[:60]}…</a>
                             </div>
