@@ -769,9 +769,36 @@ if nav == "Job Feed":
                                          placeholder="Software Engineer, ML Engineer…",
                                          label_visibility="collapsed")
         with dc2:
-            search_loc = st.text_input("Location", value=st.session_state.pref_location,
-                                        placeholder="Remote · San Francisco · Vancouver",
-                                        label_visibility="collapsed")
+            _LOC_SUGGESTIONS = [
+                "Remote",
+                "Vancouver, BC",
+                "Toronto, ON",
+                "Calgary, AB",
+                "Edmonton, AB",
+                "Ottawa, ON",
+                "Montreal, QC",
+                "Waterloo, ON",
+                "Victoria, BC",
+                "Seattle, WA",
+                "San Francisco, CA",
+                "New York, NY",
+                "Austin, TX",
+                "Boston, MA",
+                "Los Angeles, CA",
+                "London, UK",
+                "Singapore",
+            ]
+            _loc_pref = st.session_state.get("pref_location", "Vancouver, BC")
+            _loc_opts = list(_LOC_SUGGESTIONS)
+            if _loc_pref and _loc_pref not in _loc_opts:
+                _loc_opts.insert(0, _loc_pref)
+            _loc_idx = _loc_opts.index(_loc_pref) if _loc_pref in _loc_opts else 0
+            search_loc = st.selectbox(
+                "Location",
+                options=_loc_opts,
+                index=_loc_idx,
+                label_visibility="collapsed",
+            )
         with dc3:
             find = st.button("🔍  Find Jobs", type="primary", use_container_width=True)
 
@@ -783,7 +810,7 @@ if nav == "Job Feed":
             time.sleep(0.5)
             st.write("🔍  Parsing role requirements and extracting JDs…")
             time.sleep(0.4)
-            found_ids = run_async(_run_discovery(repo, search_role, search_loc, 25))
+            found_ids = run_async(_run_discovery(repo, search_role, search_loc, 50))
             st.session_state.feed_job_ids = found_ids
             st.write(f"✅  **{len(found_ids)} roles** found for this search.")
             s.update(label=f"Done — {len(found_ids)} jobs in feed.", state="complete")
