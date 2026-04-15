@@ -352,3 +352,28 @@ async def test_system_prompt_forbids_skills_not_in_context(tmp_path, sample_job)
     assert "missing_skills" in captured["system"], (
         "System prompt must instruct LLM to populate missing_skills field"
     )
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_allows_imported_resume_projects_as_fallback(tmp_path, sample_job):
+    """System prompt must allow projects from the imported resume section when GitHub has few matches."""
+    with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
+        mock_ledger = MagicMock(spec=LedgerManager)
+        mock_ledger.ledger_path = str(tmp_path / "ledger.md")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        with patch("google.genai.Client"):
+            tailor = AITailor(ledger_manager=mock_ledger)
+
+    captured: dict = {}
+
+    async def _spy(system_prompt: str, user_prompt: str) -> TailoredApplication:
+        captured["system"] = system_prompt
+        return _blank_result(sample_job.id)
+
+    with patch.object(tailor, "_call_llm", side_effect=_spy):
+        await tailor.tailor_application(sample_job)
+
+    system = captured["system"].lower()
+    assert "imported resume" in system or "technical projects" in system, (
+        "System prompt must allow projects from the imported resume section as a fallback source"
+    )

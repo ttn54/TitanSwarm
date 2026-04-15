@@ -22,7 +22,7 @@
 * **Languages:** Python 3.12, Go, TypeScript, JavaScript, Java, C, C++, SQL, HTML/CSS.
 * **Frontend:** React, TypeScript, Vite, REST API integration, JWT Authentication, Responsive Design.
 * **Tools:** Git, Linux, Docker, Pytest, Playwright, GitHub Actions, CI/CD pipelines.
-* **Testing & Validation:** Pytest (unit, integration, TDD), JUnit (Java), Test-Driven Development (TDD), 82-test suite with mocking and fixtures.
+* **Testing & Validation:** Pytest (unit, integration, TDD), JUnit (Java), Test-Driven Development (TDD), 113-test suite with mocking and fixtures.
 * **Concepts:** Test-Driven Development (TDD), Agile software development lifecycle (SDLC), Human-in-the-loop Agent workflows, Distributed State Machines, Vector Databases (FAISS).
 
 ## Imported Resume: Zen_Nguyen_new_standard_resume.pdf
@@ -50,7 +50,7 @@ extraction, and parsing of real-time Software Engineering postings via concurren
 FAISS Vector Store, delivering uniquely tailored, ATS-optimized PDF resumes for each job using only verified user data.
 • Designed and implemented a Streamlit Human-in-the-Loop dispatch UI with a Kanban board, enabling users to review, tailor,
 and manage applications across a full pipeline with persistent state via a SQLite repository layer.
-• Applied Test-Driven Development (TDD) with a 82-test suite using Pytest, mocking, and async fixtures to validate all
+• Applied Test-Driven Development (TDD) with a 113-test suite using Pytest, mocking, and async fixtures to validate all
 components including the scraper, AI tailor, PDF generator, and repository layer.
 TitanStore (Distributed Raft Database) Jan 2026 – Present
 Personal Project Go, Raft Consensus Algorithm, TCP Sockets
