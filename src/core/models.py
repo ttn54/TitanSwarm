@@ -75,3 +75,8 @@ class CoverLetterResult(BaseModel):
         default=None,
         description="Recipient street address extracted verbatim from the JD, or null if not present.",
     )
+
+
+class User(BaseModel):
+    id: int
+    username: str
