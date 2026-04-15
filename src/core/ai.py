@@ -179,11 +179,13 @@ class AITailor:
             '      "tech": "<4-5 techs from THIS project most relevant to THIS JD — not all techs>",\n'
             '      "date": "<date range>",\n'
             '      "project_type": "<Personal Project or Collaborative Project>",\n'
+            '      "keyword_overlap_count": <integer — count of JD keywords matched by this project>,\n'
             '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>", "<XYZ bullet 3 — add if relevant>", "<XYZ bullet 4 — add if highly relevant>"]\n'
             '    }\n'
             '  ],\n'
             '  "tailored_experience": [],\n'
-            '  "q_and_a_responses": {"<question>": "<answer>"}\n'
+            '  "q_and_a_responses": {"<question>": "<answer>"},\n'
+            '  "missing_skills": ["<exact tool/language from JD that is NOT in candidate context>"]\n'
             '}'
         )
 
@@ -290,13 +292,14 @@ class AITailor:
             "'Cassandra') not vague (e.g. 'DevOps skills'). An empty list is valid if the candidate matches fully.\n"
             "2. For tailored_projects: use keyword-overlap scoring — works for ANY job type.\n"
             "  STEP A: Extract the top 10 specific tech keywords from the JD (tools, languages, frameworks, patterns).\n"
-            "  STEP B: For each GitHub repo in the context, count how many JD keywords appear "
-            "in its README, description, or tech stack. Repos with zero keyword overlap MUST be excluded. "
+            "  STEP B: For EACH candidate project — both repos from '## GitHub Projects:' AND projects from "
+            "the 'TECHNICAL PROJECTS' section of the imported resume — count how many JD keywords appear "
+            "in its description, README, or tech stack. Projects with zero keyword overlap MUST be excluded. "
             "Store this count in the 'keyword_overlap_count' field for that project.\n"
-            "  STEP C: Rank repos by overlap count. Select the top 3 only.\n"
-            "  For the 'tech' field per repo: list ONLY the 4-5 techs from that project "
+            "  STEP C: Rank ALL candidate projects by overlap count. Select the top 3 only.\n"
+            "  For the 'tech' field per project: list ONLY the 4-5 techs from that project "
             "with the highest overlap with THIS JD's keywords — not the full stack.\n"
-            "  BULLET COUNT RULE: give 4 bullets to repos with keyword_overlap_count >= 3; give 2 bullets to repos with keyword_overlap_count <= 2.\n"
+            "  BULLET COUNT RULE: give 4 bullets to projects with keyword_overlap_count >= 3; give 2 bullets to projects with keyword_overlap_count <= 2.\n"
             "3. For tailored_experience: leave this array empty — work experience is not included on this resume.\n"
             "4. Do NOT invent project names, tech stacks, dates, or metrics not present in the context.\n\n"
             f"CANDIDATE'S CONTEXT:\n{resume_text}"
@@ -317,13 +320,15 @@ class AITailor:
             f"Omit irrelevant categories entirely. "
             f"If the JD mentions Agile, SDLC, or project planning — embed those exact terms naturally into at least one bullet.\n"
             f"3. For tailored_projects: use keyword-overlap scoring. "
-            f"Extract the top 10 tech keywords from the JD. For each GitHub repo in the context, "
-            f"count how many JD keywords appear in its README/stack (this is its overlap score). "
-            f"Rank repos by overlap score and pick the top 3 — repos with zero overlap must be excluded entirely. "
-            f"For the 'tech' field per repo: list only the 4-5 techs with the highest overlap with THIS JD's keywords. "
-            f"Set keyword_overlap_count on each project to the number of JD keywords matched. "
-            f"Give 4 bullets to repos with keyword_overlap_count >= 3; give only 2 bullets to repos with keyword_overlap_count <= 2. "
-            f"Preserve repo name as title exactly.\n"
+            f"Extract the top 10 tech keywords from the JD. For EACH candidate project — "
+            f"both repos from '## GitHub Projects:' AND projects from the 'TECHNICAL PROJECTS' section — "
+            f"count how many JD keywords appear in its description/stack (this is its overlap score). "
+            f"Rank ALL candidate projects by overlap score and pick the top 3. "
+            f"Projects with zero keyword overlap must be excluded entirely. "
+            f"For the 'tech' field per project: list only the 4-5 techs with the highest overlap with THIS JD's keywords. "
+            f"Set keyword_overlap_count on each selected project to the number of JD keywords matched. "
+            f"Give 4 bullets to projects with keyword_overlap_count >= 3; give only 2 bullets to projects with keyword_overlap_count <= 2. "
+            f"Preserve project name as title exactly.\n"
             f"4. Leave tailored_experience as an empty array [].\n"
             f"5. Answer these application questions (if any):\n{questions_str}\n\n"
             f"job_id to use in output: {job.id}"
