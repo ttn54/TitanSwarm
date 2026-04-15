@@ -719,6 +719,14 @@ with st.sidebar:
     st.markdown("")
     st.caption("TitanSwarm v2.0 · Fall 2026 SWE")
 
+    st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
+    _uname = st.session_state.get("username", "")
+    st.markdown(f'<div style="font-size:0.75rem;color:#64748b;margin-bottom:0.5rem;">Logged in as <strong style="color:#94a3b8;">{_uname}</strong></div>', unsafe_allow_html=True)
+    if st.button("🚪 Log Out", use_container_width=True):
+        for _k in list(st.session_state.keys()):
+            del st.session_state[_k]
+        st.rerun()
+
 # Track which page we're on so Preferences can detect "just arrived" state
 st.session_state["_on_prefs_page"] = (nav == "Preferences")
 
