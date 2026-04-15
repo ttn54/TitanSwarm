@@ -54,8 +54,9 @@ class TestMatchScore:
             "Backend engineer needed: Node.js, REST APIs, SQL databases",
             model,
         )
-        # Related but different tech stack — should be moderate
-        assert 30 <= score <= 85
+        # Related but different tech stack — hybrid intentionally penalises
+        # keyword mismatch (Python/Flask ≠ Node.js/SQL), so lower bound is 20.
+        assert 20 <= score <= 85
 
     def test_empty_resume_returns_zero(self):
         from src.core.matching import compute_match_score

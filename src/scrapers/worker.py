@@ -12,19 +12,10 @@ class SourcingEngine:
         self.repository = repository
         self.interval_hours = interval_hours
 
-    async def run_sweep(self, role: str, location: str, results_wanted: int = 25) -> tuple[int, list[str]]:
-        """
-        Executes a scraping sweep utilizing jobspy, converts the raw DataFrame
-        to Pydantic Job models, deduplicates against the repository, and persists
-        new jobs.
-        Returns (new_saved_count, all_found_job_ids) so the UI can display
-        all results for this sweep regardless of their current status.
-        """
+    async def _scrape_df(self, role: str, location: str, results_wanted: int) -> pd.DataFrame:
+        """Run the blocking JobSpy scrape in a thread pool and return the raw DataFrame."""
         loop = asyncio.get_event_loop()
 
-        # Run the blocking scrape_jobs call in a thread pool so it doesn't
-        # freeze the event loop. LinkedIn is the only reliable free source;
-        # Indeed is included as a secondary. Glassdoor requires login cookies.
         def _scrape() -> pd.DataFrame:
             return scrape_jobs(
                 site_name=["linkedin", "indeed"],
@@ -34,7 +25,17 @@ class SourcingEngine:
                 linkedin_fetch_description=True,
             )
 
-        jobs_df = await loop.run_in_executor(None, _scrape)
+        return await loop.run_in_executor(None, _scrape)
+
+    async def run_sweep(self, role: str, location: str, results_wanted: int = 25) -> tuple[int, list[str]]:
+        """
+        Executes a scraping sweep utilizing jobspy, converts the raw DataFrame
+        to Pydantic Job models, deduplicates against the repository, and persists
+        new jobs.
+        Returns (new_saved_count, all_found_job_ids) so the UI can display
+        all results for this sweep regardless of their current status.
+        """
+        jobs_df = await self._scrape_df(role, location, results_wanted)
 
         if jobs_df is None or jobs_df.empty:
             logger.info("Scraping sweep returned no results.")
@@ -88,17 +89,20 @@ class SourcingEngine:
 
             all_found_ids.append(job_id)
 
-            # Deduplication: skip only if the existing record has a real description.
-            # If description is missing/placeholder, fall through and overwrite it.
+            # ── No-description filter ─────────────────────────────────────
+            # Jobs without a real description cannot be tailored — skip them.
             _BAD_DESC = {"", "Description not provided.", "None", "nan"}
+            description = row.get("description")
+            _desc_str = "" if (not description or (isinstance(description, float) and pd.isna(description))) else str(description).strip()
+            if _desc_str in _BAD_DESC:
+                logger.debug(f"Skipping job {job_id}: no description")
+                continue
+
+            # Deduplication: skip only if the existing record has a real description.
             existing = await self.repository.get_job(job_id)
             if existing is not None and existing.job_description.strip() not in _BAD_DESC:
                 logger.debug(f"Skipping duplicate job: {job_id}")
                 continue
-
-            description = row.get("description")
-            if not description or (isinstance(description, float) and pd.isna(description)) or str(description).strip() in {"None", "nan", ""}:
-                description = "Description not provided."
 
             # Extract skills list from JobSpy 'skills' column (may be None or a list)
             raw_skills = row.get("skills")
@@ -127,7 +131,7 @@ class SourcingEngine:
                 company=company,
                 role=str(row.get("title")),
                 status=JobStatus.DISCOVERED,
-                job_description=str(description),
+                job_description=_desc_str,
                 required_skills=required_skills,
                 url=str(row.get("job_url")),
                 location=job_location,
