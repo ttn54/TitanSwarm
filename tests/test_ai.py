@@ -2,7 +2,7 @@ import pytest
 import os
 from unittest.mock import patch, AsyncMock, MagicMock
 from src.core.models import Job, JobStatus, TailoredApplication, TailoredProject, TailoredExperience
-from src.core.ai import AITailor
+from src.core.ai import AITailor, _merge_skill_categories
 from src.core.ledger import LedgerManager
 
 @pytest.fixture
@@ -458,4 +458,99 @@ async def test_system_prompt_step_b_covers_technical_projects_section(tmp_path, 
     assert "technical projects" in system and "github projects" in system, (
         "STEP B must score projects from BOTH '## GitHub Projects:' AND the "
         "'TECHNICAL PROJECTS' section of the imported resume."
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _merge_skill_categories unit tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_merge_skill_categories_within_cap_unchanged():
+    """If there are already 4 or fewer categories, nothing is merged."""
+    skills = {
+        "Languages": ["Python", "Java"],
+        "AI & Data": ["LangChain"],
+        "Infrastructure & DevOps": ["Docker"],
+        "Backend & Systems": ["RESTful APIs"],
+    }
+    result = _merge_skill_categories(skills, max_categories=4)
+    assert len(result) == 4
+
+
+def test_merge_skill_categories_reduces_to_cap():
+    """When LLM returns > 4 categories, _merge_skill_categories reduces them to <= 4."""
+    skills = {
+        "Languages": ["Python", "Java"],
+        "AI & Data": ["LangChain"],
+        "Infrastructure & DevOps": ["Docker"],
+        "Backend & Systems": ["RESTful APIs"],
+        "Cloud & Services": ["AWS"],
+        "Databases": ["PostgreSQL"],
+        "Testing & Validation": ["Pytest"],
+    }
+    result = _merge_skill_categories(skills, max_categories=4)
+    assert len(result) <= 4
+
+
+def test_merge_cloud_into_infrastructure():
+    """'Cloud & Services' skills must be merged into 'Infrastructure & DevOps'."""
+    skills = {
+        "Languages": ["Python"],
+        "Infrastructure & DevOps": ["Docker"],
+        "Cloud & Services": ["AWS"],
+        "Backend & Systems": ["RESTful APIs"],
+        "AI & Data": ["LangChain"],
+    }
+    result = _merge_skill_categories(skills, max_categories=4)
+    assert "Cloud & Services" not in result
+    infra = result.get("Infrastructure & DevOps", [])
+    assert "AWS" in infra
+
+
+def test_merge_databases_into_backend():
+    """'Databases' skills must be merged into 'Backend & Systems'."""
+    skills = {
+        "Languages": ["Python"],
+        "Infrastructure & DevOps": ["Docker"],
+        "Backend & Systems": ["RESTful APIs"],
+        "Databases": ["PostgreSQL", "MongoDB"],
+        "AI & Data": ["LangChain"],
+    }
+    result = _merge_skill_categories(skills, max_categories=4)
+    assert "Databases" not in result
+    backend = result.get("Backend & Systems", [])
+    assert "PostgreSQL" in backend
+    assert "MongoDB" in backend
+
+
+def test_languages_category_preserved():
+    """'Languages' category must always survive the merge — never eliminated."""
+    skills = {
+        "Languages": ["Python", "Java", "C++", "Go"],
+        "AI & Data": ["LangChain"],
+        "Infrastructure & DevOps": ["Docker"],
+        "Backend & Systems": ["RESTful APIs"],
+        "Cloud & Services": ["AWS"],
+        "Databases": ["PostgreSQL"],
+        "Testing & Validation": ["Pytest"],
+    }
+    result = _merge_skill_categories(skills, max_categories=4)
+    assert "Languages" in result
+
+
+def test_system_prompt_languages_rule(tmp_path, sample_job):
+    """System prompt must instruct the LLM to include ALL languages from context,
+    not only JD-relevant ones."""
+    with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
+        mock_ledger = MagicMock(spec=LedgerManager)
+        mock_ledger.ledger_path = str(tmp_path / "ledger.md")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        with patch("google.genai.Client"):
+            tailor = AITailor(ledger_manager=mock_ledger)
+
+    import inspect
+    source = inspect.getsource(tailor._call_gemini)
+    source_lower = source.lower()
+    assert "all" in source_lower and "language" in source_lower, (
+        "System prompt must instruct LLM to list ALL languages from context."
     )

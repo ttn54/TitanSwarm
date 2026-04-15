@@ -5,6 +5,57 @@ from src.core.models import Job, TailoredApplication, TailoredProject, TailoredE
 from src.core.ledger import LedgerManager
 
 
+# Merge priority: if we have > max_categories, absorb these keys into a target
+_MERGE_MAP = [
+    ("Cloud & Services",    "Infrastructure & DevOps"),
+    ("Databases",           "Backend & Systems"),
+    ("Testing & Validation","Backend & Systems"),
+    ("Game Development",    "Languages"),
+    ("Mobile Development",  "Backend & Systems"),
+]
+
+def _merge_skill_categories(
+    skills: dict[str, list[str]],
+    max_categories: int = 4,
+) -> dict[str, list[str]]:
+    """
+    Enforce a hard cap on the number of skill categories.
+
+    Merging rules (applied in order until len <= max_categories):
+    1. Absorb small secondary categories into a natural parent using _MERGE_MAP.
+    2. If still over cap after all mapped merges, absorb the smallest remaining
+       category into its nearest neighbour in the dict.
+    Languages is NEVER eliminated — it is always kept.
+    """
+    result: dict[str, list[str]] = dict(skills)  # preserve original order
+
+    for source_cat, target_cat in _MERGE_MAP:
+        if len(result) <= max_categories:
+            break
+        if source_cat in result:
+            if target_cat in result:
+                result[target_cat] = result[target_cat] + result.pop(source_cat)
+            else:
+                # Target doesn't exist — rename source to target
+                result[target_cat] = result.pop(source_cat)
+
+    # Safety: if still over cap, absorb smallest non-Languages category iteratively
+    while len(result) > max_categories:
+        # Sort by skill count ascending, but never touch Languages
+        candidates = sorted(
+            [(k, v) for k, v in result.items() if k != "Languages"],
+            key=lambda kv: len(kv[1]),
+        )
+        if len(candidates) < 2:
+            break
+        smallest_key, smallest_skills = candidates[0]
+        second_key = candidates[1][0]
+        result[second_key] = result[second_key] + result.pop(smallest_key)
+
+    return result
+
+
+
 def _load_dotenv():
     """Minimal .env loader — no dependency on python-dotenv."""
     env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
@@ -278,10 +329,11 @@ class AITailor:
             "  • 'Security & Networking'    -> JD mentions auth, OAuth, JWT, TLS, OWASP, penetration testing\n"
             "  • 'Testing & Validation'     -> JD mentions test, QA, validation, bug, automation, quality\n"
             "  • 'Databases'               -> JD mentions schema design, indexing, PostgreSQL, MongoDB, Redis\n"
-            "  • 'Languages'               -> JD lists specific language proficiency requirements\n"
-            "CATEGORY RULES: Select only the 2-4 categories the JD actually requires. "
-            "You may create a new category label (e.g. 'Game Development', 'Embedded Systems') if no taxonomy entry fits. "
-            "Always include 'Testing & Validation' if the JD mentions testing or QA.\n"
+            "  • 'Languages'               -> ALWAYS include this category; list ALL programming languages from the candidate's context, not just JD-relevant ones\n"
+            "CATEGORY RULES: Output EXACTLY 3-4 categories — no more, no less. "
+            "If a JD only touches 2 distinct areas, merge related categories (e.g. 'Cloud & Services' into 'Infrastructure & DevOps', 'Databases' into 'Backend & Systems'). "
+            "ALWAYS include 'Languages' as one of the 3-4 categories. "
+            "You may create a new category label (e.g. 'Game Development', 'Embedded Systems') if no taxonomy entry fits.\n"
             "SKILLS GUARDRAIL (CRITICAL): For skills_to_highlight, you are ABSOLUTELY FORBIDDEN from listing "
             "any skill, tool, language, or technology that does not appear explicitly in the CANDIDATE'S CONTEXT. "
             "Do NOT add skills from the JD that the candidate has not demonstrated. "
@@ -348,6 +400,10 @@ class AITailor:
         for i, proj in enumerate(result.tailored_projects):
             if i > 0 and proj.keyword_overlap_count <= 2:
                 proj.bullets = proj.bullets[:2]
+        # Hard cap: never show more than 4 skill categories on the resume
+        result.skills_to_highlight = _merge_skill_categories(
+            result.skills_to_highlight, max_categories=4
+        )
         return result
 
     async def _call_llm_text(self, prompt: str) -> str:
