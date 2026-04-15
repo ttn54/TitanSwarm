@@ -105,15 +105,17 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
+/* Make header transparent (hides Streamlit branding) but keep toggle button clickable */
+header[data-testid="stHeader"] { background: transparent !important; }
+header[data-testid="stHeader"] > * { visibility: hidden; }
+header[data-testid="stHeader"] button { visibility: visible !important; }
 .stApp { background: #f1f5f9; }
 
 /* ── Sidebar ── */
 section[data-testid="stSidebar"] {
     background: #0f172a !important;
     border-right: none !important;
-    min-width: 220px !important;
-    max-width: 220px !important;
 }
 section[data-testid="stSidebar"] * { color: #94a3b8 !important; }
 section[data-testid="stSidebar"] .stRadio label { font-size: 0.88rem !important; }
@@ -456,8 +458,79 @@ if "repo" not in st.session_state:
     run_async(_r.init_db())
     st.session_state.repo = _r
 
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTH GATE — must be satisfied before any other UI renders
+# ─────────────────────────────────────────────────────────────────────────────
+def _render_auth_page():
+    """Renders the login / register page and halts app rendering until authenticated."""
+    st.markdown("""
+    <style>
+    .auth-wrap { max-width: 420px; margin: 6rem auto 0 auto; }
+    .auth-title { font-size: 2rem; font-weight: 800; color: #0f172a;
+                  letter-spacing: -0.04em; text-align: center; margin-bottom: 0.25rem; }
+    .auth-sub   { font-size: 0.9rem; color: #64748b; text-align: center; margin-bottom: 2rem; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="auth-title">⚡ TitanSwarm</div>', unsafe_allow_html=True)
+    st.markdown('<div class="auth-sub">Your autonomous job application Co-Pilot</div>', unsafe_allow_html=True)
+
+    tab_login, tab_register = st.tabs(["Log In", "Register"])
+
+    with tab_login:
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Log In", use_container_width=True, type="primary")
+        if submitted:
+            if not username or not password:
+                st.error("Please enter both username and password.")
+            else:
+                uid = run_async(st.session_state.repo.verify_user(username, password))
+                if uid is None:
+                    st.error("Invalid username or password.")
+                else:
+                    st.session_state["user_id"] = uid
+                    st.session_state["username"] = username
+                    st.rerun()
+
+    with tab_register:
+        with st.form("register_form"):
+            new_username = st.text_input("Choose a username")
+            new_password = st.text_input("Choose a password", type="password")
+            confirm_pw   = st.text_input("Confirm password", type="password")
+            reg_submitted = st.form_submit_button("Create Account", use_container_width=True, type="primary")
+        if reg_submitted:
+            if not new_username or not new_password:
+                st.error("Username and password are required.")
+            elif new_password != confirm_pw:
+                st.error("Passwords do not match.")
+            elif len(new_password) < 8:
+                st.error("Password must be at least 8 characters.")
+            else:
+                try:
+                    uid = run_async(st.session_state.repo.create_user(new_username, new_password))
+                    # Seed ledger from data/ledger.md for first user only
+                    _seed_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
+                    if os.path.exists(_seed_path):
+                        _seed_content = open(_seed_path, encoding="utf-8").read()
+                        run_async(st.session_state.repo.save_ledger(uid, _seed_content))
+                    st.session_state["user_id"] = uid
+                    st.session_state["username"] = new_username
+                    st.success(f"Account created! Welcome, {new_username}.")
+                    st.rerun()
+                except ValueError as e:
+                    st.error(str(e))
+
+if "user_id" not in st.session_state:
+    _render_auth_page()
+    st.stop()
+
+# From here down, the user is authenticated. user_id is always available.
+_USER_ID: int = st.session_state.get("user_id", 1)
+
 if "profile" not in st.session_state:
-    _db_profile = run_async(st.session_state.repo.get_profile())
+    _db_profile = run_async(st.session_state.repo.get_profile(user_id=_USER_ID))
     st.session_state.profile = _db_profile if _db_profile else UserProfile()
 
 # Seed form display keys from the saved profile.
@@ -547,8 +620,12 @@ if "st_model" not in st.session_state:
         sys.stderr = _old_stderr
 
 if "tailor" not in st.session_state:
-    _ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-    _lm = LedgerManager(ledger_path=_ledger_path, db_path="data/faiss.index")
+    _ledger_content = run_async(st.session_state.repo.get_ledger(_USER_ID))
+    if _ledger_content:
+        _lm = LedgerManager.from_content(_ledger_content, db_path="data/faiss.index")
+    else:
+        _ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
+        _lm = LedgerManager(ledger_path=_ledger_path, db_path="data/faiss.index")
     _lm.model = st.session_state.st_model   # inject — skip second model load
     try:
         _lm.build_index()
@@ -584,11 +661,11 @@ if "resume_text_cache" not in st.session_state:
 with st.sidebar:
     st.markdown('<div class="nav-logo">⚡ Titan<span>Swarm</span></div>', unsafe_allow_html=True)
 
-    total        = run_async(repo.count_all())
-    n_pending    = len(run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
-    n_submitted  = len(run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED)))
-    n_discovered = len(run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)))
-    n_interview  = len(run_async(repo.get_jobs_by_status(JobStatus.INTERVIEW)))
+    total        = run_async(repo.count_all(user_id=_USER_ID))
+    n_pending    = len(run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID)))
+    n_submitted  = len(run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID)))
+    n_discovered = len(run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=_USER_ID)))
+    n_interview  = len(run_async(repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=_USER_ID)))
 
     st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
     st.markdown('<div class="nav-section-label">Menu</div>', unsafe_allow_html=True)
@@ -729,8 +806,8 @@ if nav == "Job Feed":
     # download button remains visible immediately after tailoring (before the
     # user navigates away). Filter to feed_job_ids when a search has been done.
     _feed_ids: list[str] = st.session_state.get("feed_job_ids", [])
-    _all_repo_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED)) +
-                      run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)))
+    _all_repo_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=_USER_ID)) +
+                      run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID)))
     if _feed_ids:
         _id_set = set(_feed_ids)
         _raw_jobs = [j for j in _all_repo_jobs if j.id in _id_set]
@@ -851,9 +928,9 @@ if nav == "Job Feed":
                                     st.session_state[f"autodownload_{job.id}"] = True
                                     # Persist tailored result to DB so it survives page refresh
                                     run_async(repo.save_tailored_result(
-                                        job.id, result.model_dump_json(), pdf_bytes
+                                        job.id, result.model_dump_json(), pdf_bytes, user_id=_USER_ID
                                     ))
-                                    run_async(repo.update_status(job.id, JobStatus.PENDING_REVIEW))
+                                    run_async(repo.update_status(job.id, JobStatus.PENDING_REVIEW, user_id=_USER_ID))
                                     st.toast(f"Resume for {job.company} is ready!", icon="✅")
                                     st.rerun()
                                 except Exception as e:
@@ -864,7 +941,7 @@ if nav == "Job Feed":
                     # Show download button if PDF is already generated for this job
                     # Load from DB if not in session state (page was refreshed)
                     if f"pdf_{job.id}" not in st.session_state:
-                        _db_result = run_async(repo.get_tailored_result(job.id))
+                        _db_result = run_async(repo.get_tailored_result(job.id, user_id=_USER_ID))
                         if _db_result:
                             _db_ai_json, _db_pdf, _db_cl = _db_result
                             st.session_state[f"pdf_{job.id}"] = _db_pdf
@@ -907,7 +984,7 @@ if nav == "Job Feed":
                                     st.markdown(f"- {_g}")
 
                     if st.button("Skip", key=f"skip_{job.id}", use_container_width=True):
-                        run_async(repo.update_status(job.id, JobStatus.REJECTED))
+                        run_async(repo.update_status(job.id, JobStatus.REJECTED, user_id=_USER_ID))
                         st.rerun()
 
                     # Cover letter button — always visible; only active after resume is tailored
@@ -943,6 +1020,7 @@ if nav == "Job Feed":
                                                 st.session_state.get(f"qa_{job.id}", "{}"),
                                                 st.session_state[f"pdf_{job.id}"],
                                                 cover_letter=_cl_result.body,
+                                                user_id=_USER_ID,
                                             ))
                                             st.rerun()
                                         except Exception as e:
@@ -1008,10 +1086,10 @@ elif nav == "My Applications":
 
     # Fetch all buckets
     buckets = {
-        "Pending Review": run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW)),
-        "Applied":        run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED)),
-        "Interview":      run_async(repo.get_jobs_by_status(JobStatus.INTERVIEW)),
-        "Rejected":       run_async(repo.get_jobs_by_status(JobStatus.REJECTED)),
+        "Pending Review": run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID)),
+        "Applied":        run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID)),
+        "Interview":      run_async(repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=_USER_ID)),
+        "Rejected":       run_async(repo.get_jobs_by_status(JobStatus.REJECTED, user_id=_USER_ID)),
     }
     bucket_colors = {
         "Pending Review": "#f59e0b",
@@ -1062,36 +1140,36 @@ elif nav == "My Applications":
                             bc1, bc2, bc3 = st.columns(3)
                             with bc1:
                                 if st.button("✅ Submit", key=f"kanban_sub_{job.id}", use_container_width=True):
-                                    run_async(repo.update_status(job.id, JobStatus.SUBMITTED))
+                                    run_async(repo.update_status(job.id, JobStatus.SUBMITTED, user_id=_USER_ID))
                                     st.rerun()
                             with bc2:
                                 if st.button("↩ Return", key=f"kanban_ret_{job.id}", use_container_width=True):
-                                    run_async(repo.update_status(job.id, JobStatus.DISCOVERED))
+                                    run_async(repo.update_status(job.id, JobStatus.DISCOVERED, user_id=_USER_ID))
                                     st.rerun()
                             with bc3:
                                 if st.button("✗ Reject", key=f"kanban_rej_pr_{job.id}", use_container_width=True):
-                                    run_async(repo.update_status(job.id, JobStatus.REJECTED))
+                                    run_async(repo.update_status(job.id, JobStatus.REJECTED, user_id=_USER_ID))
                                     st.rerun()
 
                         elif lane_name == "Applied":
                             bc1, bc2 = st.columns(2)
                             with bc1:
                                 if st.button("🎤 Interview", key=f"kanban_int_{job.id}", use_container_width=True):
-                                    run_async(repo.update_status(job.id, JobStatus.INTERVIEW))
+                                    run_async(repo.update_status(job.id, JobStatus.INTERVIEW, user_id=_USER_ID))
                                     st.rerun()
                             with bc2:
                                 if st.button("✗ Reject", key=f"kanban_rej_ap_{job.id}", use_container_width=True):
-                                    run_async(repo.update_status(job.id, JobStatus.REJECTED))
+                                    run_async(repo.update_status(job.id, JobStatus.REJECTED, user_id=_USER_ID))
                                     st.rerun()
 
                         elif lane_name == "Interview":
                             if st.button("✗ Reject", key=f"kanban_rej_iv_{job.id}", use_container_width=True):
-                                run_async(repo.update_status(job.id, JobStatus.REJECTED))
+                                run_async(repo.update_status(job.id, JobStatus.REJECTED, user_id=_USER_ID))
                                 st.rerun()
 
                         elif lane_name == "Rejected":
                             if st.button("↩ Restore", key=f"kanban_restore_{job.id}", use_container_width=True):
-                                run_async(repo.update_status(job.id, JobStatus.DISCOVERED))
+                                run_async(repo.update_status(job.id, JobStatus.DISCOVERED, user_id=_USER_ID))
                                 st.rerun()
 
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -1210,7 +1288,7 @@ elif nav == "Preferences":
                 pref_location=st.session_state.get("pref_location", ""),
             )
             st.session_state.profile = _saved_profile
-            run_async(repo.save_profile(_saved_profile))
+            run_async(repo.save_profile(_saved_profile, user_id=_USER_ID))
             st.toast("Profile saved!", icon="🔒")
             st.rerun()
 
@@ -1255,7 +1333,7 @@ elif nav == "Preferences":
                     "pref_location": pref_loc,
                 })
                 st.session_state.profile = _saved_pf
-                run_async(repo.save_profile(_saved_pf))
+                run_async(repo.save_profile(_saved_pf, user_id=_USER_ID))
 
                 # ── GitHub enrichment ────────────────────────────────────────
                 _gh_handle = st.session_state.get("_pf_github", "").strip()
@@ -1428,7 +1506,7 @@ elif nav == "Preferences":
                             pref_location=pf_cur.pref_location,
                         )
                         st.session_state.profile = _upload_profile
-                        run_async(repo.save_profile(_upload_profile))
+                        run_async(repo.save_profile(_upload_profile, user_id=_USER_ID))
                         # ── Write to ledger (replace any previous import) ──────
                         ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
                         existing = open(ledger_path, encoding="utf-8").read()
