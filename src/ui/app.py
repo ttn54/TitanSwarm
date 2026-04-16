@@ -317,12 +317,12 @@ def avatar_html(company: str, size: int = 44, radius: int = 12) -> str:
             f'display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
             f'{initials}</div>')
 
-async def _run_discovery(repo, role: str, location: str, count: int) -> list[str]:
+async def _run_discovery(repo, role: str, location: str, count: int, user_id: int = 1) -> list[str]:
     """Clears previous DISCOVERED jobs, runs a real JobSpy sweep.
     Returns the list of ALL job IDs found by this sweep (new + already in DB)."""
-    await repo.delete_jobs_by_status(JobStatus.DISCOVERED)
+    await repo.delete_jobs_by_status(JobStatus.DISCOVERED, user_id=user_id)
     engine = SourcingEngine(repository=repo)
-    _saved, all_ids = await engine.run_sweep(role=role, location=location, results_wanted=count)
+    _saved, all_ids = await engine.run_sweep(role=role, location=location, results_wanted=count, user_id=user_id)
     return all_ids
 
 
@@ -506,7 +506,11 @@ if "repo" not in st.session_state:
 # ─────────────────────────────────────────────────────────────────────────────
 # RESTORE SESSION FROM COOKIE (synchronous — reads from HTTP request headers)
 # ─────────────────────────────────────────────────────────────────────────────
-if "user_id" not in st.session_state:
+if st.session_state.pop("_force_logout", False):
+    # Logout was just triggered — cookie JS is deleting it client-side.
+    # Skip restoration so we show the login page immediately.
+    pass
+elif "user_id" not in st.session_state:
     _cv = st.context.cookies.get(_COOKIE_NAME)
     if _cv:
         _restored = _verify_cookie(_cv)
@@ -740,8 +744,8 @@ with st.sidebar:
     st.markdown(f'<div style="font-size:0.75rem;color:#64748b;margin-bottom:0.5rem;">Logged in as <strong style="color:#94a3b8;">{_html.escape(_uname)}</strong></div>', unsafe_allow_html=True)
     if st.button("🚪 Log Out", use_container_width=True):
         _delete_session_cookie()
-        for _k in list(st.session_state.keys()):
-            del st.session_state[_k]
+        st.session_state.clear()
+        st.session_state["_force_logout"] = True
         st.rerun()
 
 # Track which page we're on so Preferences can detect "just arrived" state
@@ -827,7 +831,7 @@ if nav == "Job Feed":
             time.sleep(0.5)
             st.write("🔍  Parsing role requirements and extracting JDs…")
             time.sleep(0.4)
-            found_ids = run_async(_run_discovery(repo, search_role, search_loc, 50))
+            found_ids = run_async(_run_discovery(repo, search_role, search_loc, 50, user_id=_USER_ID))
             st.session_state.feed_job_ids = found_ids
             st.write(f"✅  **{len(found_ids)} roles** found for this search.")
             s.update(label=f"Done — {len(found_ids)} jobs in feed.", state="complete")
