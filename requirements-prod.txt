@@ -15,7 +15,7 @@ pydantic==2.12.5
 pydantic_core==2.41.5
 annotated-types==0.7.0
 pandas==2.3.3
-numpy==1.26.3
+numpy>=1.26.0
 pyarrow==23.0.1
 
 # --- Database (SQLAlchemy async — SQLite default, Postgres optional) ---
@@ -24,6 +24,8 @@ aiosqlite==0.21.0
 asyncpg==0.30.0
 
 # --- AI / ML (CPU only — torch installed separately in Dockerfile) ---
+# torch is intentionally NOT listed here — it is installed via the CPU wheel
+# index in the Dockerfile RUN step above to avoid index conflicts.
 sentence-transformers==5.3.0
 transformers==5.3.0
 tokenizers==0.22.2
@@ -31,7 +33,7 @@ huggingface_hub==1.7.1
 safetensors==0.7.0
 faiss-cpu==1.13.2
 scikit-learn==1.8.0
-scipy==1.17.1
+scipy>=1.11.0
 
 # --- LLM API clients ---
 openai==2.29.0
