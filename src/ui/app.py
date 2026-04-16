@@ -737,17 +737,9 @@ with st.sidebar:
 
     st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
     _uname = st.session_state.get("username", "")
-    if _uname:
-        st.markdown(f'<div style="font-size:0.75rem;color:#64748b;margin-bottom:6px;">Signed in as <b style="color:#94a3b8">{_html.escape(_uname)}</b></div>', unsafe_allow_html=True)
-    if st.button("Sign Out", use_container_width=True):
-        _delete_session_cookie()
-        st.session_state.clear()
-        st.rerun()
-
-    st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
-    _uname = st.session_state.get("username", "")
-    st.markdown(f'<div style="font-size:0.75rem;color:#64748b;margin-bottom:0.5rem;">Logged in as <strong style="color:#94a3b8;">{_uname}</strong></div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="font-size:0.75rem;color:#64748b;margin-bottom:0.5rem;">Logged in as <strong style="color:#94a3b8;">{_html.escape(_uname)}</strong></div>', unsafe_allow_html=True)
     if st.button("🚪 Log Out", use_container_width=True):
+        _delete_session_cookie()
         for _k in list(st.session_state.keys()):
             del st.session_state[_k]
         st.rerun()
