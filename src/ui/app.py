@@ -1367,7 +1367,6 @@ elif nav == "Preferences":
             _save_ok = run_async(repo.save_profile(_saved_profile, user_id=_USER_ID))
             if _save_ok:
                 st.session_state.profile = _saved_profile
-                _seed_profile_keys()  # keep form keys in sync with saved data
                 st.toast("Profile saved!", icon="🔒")
             else:
                 st.error("Profile save failed — please try again.")
