@@ -3,7 +3,6 @@
 
 # --- Web framework & UI ---
 streamlit==1.55.0
-extra-streamlit-components>=0.1.60
 altair==6.0.0
 pydeck==0.9.1
 watchdog==6.0.0

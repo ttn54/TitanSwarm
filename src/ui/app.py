@@ -7,7 +7,7 @@ import html as _html
 import hmac
 import hashlib
 from datetime import date as _date, timedelta, datetime
-import extra_streamlit_components as stx
+import streamlit.components.v1 as _components
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
@@ -462,6 +462,20 @@ _COOKIE_DAYS   = 30
 def _sign(payload: str) -> str:
     return hmac.new(_COOKIE_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
+def _set_session_cookie(uid: int, username: str) -> None:
+    value = _make_cookie_value(uid, username)
+    expiry = (datetime.now() + timedelta(days=_COOKIE_DAYS)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    _components.html(
+        f'<script>document.cookie="{_COOKIE_NAME}={value}; path=/; expires={expiry}; SameSite=Lax";</script>',
+        height=0,
+    )
+
+def _delete_session_cookie() -> None:
+    _components.html(
+        f'<script>document.cookie="{_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";</script>',
+        height=0,
+    )
+
 def _make_cookie_value(uid: int, username: str) -> str:
     payload = f"{uid}:{username}"
     return f"{payload}:{_sign(payload)}"
@@ -490,13 +504,10 @@ if "repo" not in st.session_state:
     st.session_state.repo = _r
 
 # ─────────────────────────────────────────────────────────────────────────────
-# COOKIE MANAGER — must be initialised at top-level (renders a hidden component)
+# RESTORE SESSION FROM COOKIE (synchronous — reads from HTTP request headers)
 # ─────────────────────────────────────────────────────────────────────────────
-_cookie_manager = stx.CookieManager(key="ts_cookie_mgr")
-
-# Restore session from cookie if not already in session_state
 if "user_id" not in st.session_state:
-    _cv = _cookie_manager.get(cookie=_COOKIE_NAME)
+    _cv = st.context.cookies.get(_COOKIE_NAME)
     if _cv:
         _restored = _verify_cookie(_cv)
         if _restored:
@@ -536,8 +547,7 @@ def _render_auth_page():
                 else:
                     st.session_state["user_id"] = uid
                     st.session_state["username"] = username
-                    _cookie_manager.set(_COOKIE_NAME, _make_cookie_value(uid, username),
-                                        expires_at=datetime.now() + timedelta(days=_COOKIE_DAYS))
+                    _set_session_cookie(uid, username)
                     st.rerun()
 
     with tab_register:
@@ -558,8 +568,7 @@ def _render_auth_page():
                     uid = run_async(st.session_state.repo.create_user(new_username, new_password))
                     st.session_state["user_id"] = uid
                     st.session_state["username"] = new_username
-                    _cookie_manager.set(_COOKIE_NAME, _make_cookie_value(uid, new_username),
-                                        expires_at=datetime.now() + timedelta(days=_COOKIE_DAYS))
+                    _set_session_cookie(uid, new_username)
                     st.success(f"Account created! Welcome, {new_username}.")
                     st.rerun()
                 except ValueError as e:
@@ -731,7 +740,7 @@ with st.sidebar:
     if _uname:
         st.markdown(f'<div style="font-size:0.75rem;color:#64748b;margin-bottom:6px;">Signed in as <b style="color:#94a3b8">{_html.escape(_uname)}</b></div>', unsafe_allow_html=True)
     if st.button("Sign Out", use_container_width=True):
-        _cookie_manager.delete(_COOKIE_NAME)
+        _delete_session_cookie()
         st.session_state.clear()
         st.rerun()
 
