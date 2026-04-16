@@ -510,11 +510,6 @@ def _render_auth_page():
             else:
                 try:
                     uid = run_async(st.session_state.repo.create_user(new_username, new_password))
-                    # Seed ledger from data/ledger.md for first user only
-                    _seed_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-                    if os.path.exists(_seed_path):
-                        _seed_content = open(_seed_path, encoding="utf-8").read()
-                        run_async(st.session_state.repo.save_ledger(uid, _seed_content))
                     st.session_state["user_id"] = uid
                     st.session_state["username"] = new_username
                     st.success(f"Account created! Welcome, {new_username}.")
@@ -537,50 +532,14 @@ if "profile" not in st.session_state:
 # Re-seed whenever we navigate TO the Preferences page (widget keys may have
 # been cleaned up or reset to defaults while the widgets were not rendered).
 def _seed_profile_keys():
-    """Populate _pf_* session-state keys from the saved profile + ledger fallback."""
+    """Populate _pf_* session-state keys from the saved profile only."""
     _pf0 = st.session_state.profile
-    _ledger_name = ""
-    _ledger_email = ""
-    _ledger_phone = ""
-    _ledger_linkedin = ""
-    _ledger_github = ""
-    _ledger_website = ""
-    try:
-        _lp = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-        if os.path.exists(_lp):
-            _lc = open(_lp, encoding="utf-8").read()
-            _marker = "## Imported Resume:"
-            _body = _lc.split(_marker, 1)[1] if _marker in _lc else _lc
-            _lines = [l.strip() for l in _body.splitlines() if l.strip()]
-            if _lines and not _lines[0].endswith(".pdf"):
-                _ledger_name = _lines[0]
-            elif len(_lines) > 1:
-                _ledger_name = _lines[1]
-            import re as _re_init
-            for _ll in _lines[1:4]:
-                if not _ledger_email:
-                    _em = _re_init.search(r'[\w.+-]+@[\w-]+\.[\w.]+', _ll)
-                    if _em: _ledger_email = _em.group()
-                if not _ledger_phone:
-                    _ph = _re_init.search(r'\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}', _ll)
-                    if _ph: _ledger_phone = _ph.group()
-                if not _ledger_linkedin:
-                    _li = _re_init.search(r'linkedin\.com/in/[\w/-]+', _ll)
-                    if _li: _ledger_linkedin = _li.group().rstrip('/|')
-                if not _ledger_github:
-                    _gh = _re_init.search(r'github\.com/[\w-]+', _ll)
-                    if _gh: _ledger_github = _gh.group()
-                if not _ledger_website:
-                    _ws = _re_init.search(r'\b[\w-]+\.me\b', _ll)
-                    if _ws: _ledger_website = _ws.group()
-    except Exception:
-        pass
-    st.session_state["_pf_name"]    = _pf0.name    or _ledger_name
-    st.session_state["_pf_email"]   = _pf0.email   or _ledger_email
-    st.session_state["_pf_phone"]   = _pf0.phone   or _ledger_phone
-    st.session_state["_pf_github"]  = _pf0.github  or _ledger_github
-    st.session_state["_pf_linkedin"]= _pf0.linkedin or _ledger_linkedin
-    st.session_state["_pf_website"] = _pf0.website or _ledger_website
+    st.session_state["_pf_name"]    = _pf0.name    or ""
+    st.session_state["_pf_email"]   = _pf0.email   or ""
+    st.session_state["_pf_phone"]   = _pf0.phone   or ""
+    st.session_state["_pf_github"]  = _pf0.github  or ""
+    st.session_state["_pf_linkedin"]= _pf0.linkedin or ""
+    st.session_state["_pf_website"] = _pf0.website or ""
     st.session_state["_pf_summary"] = _pf0.base_summary
     st.session_state["_pf_skills"]  = ", ".join(_pf0.skills)
 
