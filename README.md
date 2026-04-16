@@ -1,5 +1,7 @@
 # TitanSwarm
 
+**Live:** [http://137.184.161.71:8501](http://137.184.161.71:8501)
+
 An autonomous, agentic job application co-pilot. TitanSwarm automates the discovery, analysis, and tailoring of job applications — delivering a ready-to-submit package to the user while deliberately keeping a human in the loop for the final submission step.
 
 ---
@@ -63,7 +65,7 @@ A Streamlit web UI with three views:
 **1. Clone and create a virtual environment**
 
 ```bash
-git clone https://github.com/your-username/TitanSwarm.git
+git clone https://github.com/ttn54/TitanSwarm.git
 cd TitanSwarm
 python -m venv .venv
 source .venv/bin/activate
@@ -168,6 +170,46 @@ tests/                 # Full test suite (pytest-asyncio)
 **Strict RAG, zero hallucination.** The LLM prompt is constructed exclusively from chunks retrieved from `data/ledger.md`. The prompt explicitly instructs the model to refuse to invent any fact not present in the retrieved context.
 
 **Repository pattern.** No component imports a database driver directly. All persistence goes through the `JobRepository` ABC (`src/core/repository.py`), making the storage layer fully swappable between SQLite and PostgreSQL without touching business logic.
+
+---
+
+## Deployment
+
+TitanSwarm ships with a Docker Compose setup for one-command production deployment.
+
+**Live instance:** [http://137.184.161.71:8501](http://137.184.161.71:8501)
+
+### Deploy with Docker
+
+**1. Copy and configure your environment file on the server:**
+
+```bash
+scp .env root@your-server-ip:/root/TitanSwarm/.env
+```
+
+**2. Build and start both containers:**
+
+```bash
+docker compose up -d --build
+```
+
+This starts two services:
+| Service | Description |
+|---|---|
+| `titanswarm_ui` | Streamlit UI on port 8501 |
+| `titanswarm_daemon` | Background job scraper |
+
+Data is persisted across restarts via three Docker volumes: `titanswarm_db`, `titanswarm_data`, `titanswarm_output`.
+
+### Continuous Deployment (GitHub Actions)
+
+Every push to the `master` branch automatically deploys to the DigitalOcean Droplet via the workflow at [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
+
+To set this up on your own server:
+1. Generate a passphrase-free SSH key: `ssh-keygen -t ed25519 -f ~/.ssh/deploy_key -N ""`
+2. Copy the public key to your server: `ssh-copy-id -i ~/.ssh/deploy_key.pub root@your-server-ip`
+3. Add the private key content as a GitHub repository secret named `DROPLET_SSH_KEY`
+4. Update the `host` field in `deploy.yml` to your server IP
 
 ---
 
