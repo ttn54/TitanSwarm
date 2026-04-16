@@ -37,6 +37,7 @@ scipy>=1.11.0
 
 # --- LLM API clients ---
 openai==2.29.0
+google-genai==1.70.0
 
 # --- Web scraping ---
 python-jobspy==1.1.82
