@@ -1364,9 +1364,13 @@ elif nav == "Preferences":
                 pref_role=st.session_state.get("pref_role", ""),
                 pref_location=st.session_state.get("pref_location", ""),
             )
-            st.session_state.profile = _saved_profile
-            run_async(repo.save_profile(_saved_profile, user_id=_USER_ID))
-            st.toast("Profile saved!", icon="🔒")
+            _save_ok = run_async(repo.save_profile(_saved_profile, user_id=_USER_ID))
+            if _save_ok:
+                st.session_state.profile = _saved_profile
+                _seed_profile_keys()  # keep form keys in sync with saved data
+                st.toast("Profile saved!", icon="🔒")
+            else:
+                st.error("Profile save failed — please try again.")
             st.rerun()
 
     with pc2:
@@ -1439,6 +1443,31 @@ elif nav == "Preferences":
                         st.toast("GitHub repos synced into AI context!", icon="🐙")
                     else:
                         st.warning("Could not fetch GitHub repos — check the username in your profile.")
+
+                # ── Website enrichment ───────────────────────────────────────
+                _website_url = st.session_state.get("_pf_website", "").strip()
+                if _website_url:
+                    with st.spinner("Extracting education & experience from your website..."):
+                        from src.core.website_enricher import fetch_website_context
+                        _web_text = fetch_website_context(_website_url)
+                    if _web_text:
+                        _cur_ledger_web = run_async(repo.get_ledger(_USER_ID))
+                        _web_marker = "## Website:"
+                        if _web_marker in _cur_ledger_web:
+                            _web_base = _cur_ledger_web.split(_web_marker)[0].rstrip()
+                        else:
+                            _web_base = _cur_ledger_web.rstrip()
+                        _new_web_ledger = _web_base + f"\n\n{_web_text}"
+                        run_async(repo.save_ledger(_USER_ID, _new_web_ledger))
+                        if st.session_state.tailor:
+                            _lm_web = LedgerManager.from_content(_new_web_ledger, db_path="data/faiss.index")
+                            _lm_web.model = st.session_state.st_model
+                            _lm_web.build_index()
+                            st.session_state.tailor.ledger = _lm_web
+                        st.session_state.pop("resume_text_cache", None)
+                        st.toast("Website context synced into AI!", icon="🌐")
+                    else:
+                        st.warning("Could not extract content from your website — the page may be JavaScript-only.")
 
                 st.toast("Preferences saved!", icon="✅")
                 st.rerun()
