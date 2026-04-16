@@ -1,0 +1,48 @@
+services:
+
+  # ── Streamlit UI — the Dispatch Terminal ──────────────────────────────────
+  ui:
+    build: .
+    image: titanswarm:latest
+    container_name: titanswarm_ui
+    restart: unless-stopped
+    command: >
+      streamlit run src/ui/app.py
+      --server.port=8501
+      --server.address=0.0.0.0
+      --server.headless=true
+      --browser.gatherUsageStats=false
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////app/db/titanswarm.db
+    volumes:
+      - titanswarm_data:/app/data
+      - titanswarm_output:/app/output
+      - titanswarm_db:/app/db
+    depends_on:
+      - daemon
+
+  # ── Sourcing Daemon — background scraper ─────────────────────────────────
+  daemon:
+    build: .
+    image: titanswarm:latest
+    container_name: titanswarm_daemon
+    restart: unless-stopped
+    command: python -m src.scrapers.daemon
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////app/db/titanswarm.db
+    volumes:
+      - titanswarm_data:/app/data
+      - titanswarm_output:/app/output
+      - titanswarm_db:/app/db
+
+# ── Named volumes — persisted on the Droplet's disk ─────────────────────────
+volumes:
+  titanswarm_data:
+  titanswarm_output:
+  titanswarm_db:
