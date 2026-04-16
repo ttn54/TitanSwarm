@@ -4,7 +4,10 @@ import sys
 import os
 import time
 import html as _html
-from datetime import date as _date, timedelta
+import hmac
+import hashlib
+from datetime import date as _date, timedelta, datetime
+import extra_streamlit_components as stx
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
@@ -450,6 +453,34 @@ def _parse_ledger_for_pdf(ledger_path: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# COOKIE AUTH HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+_COOKIE_NAME   = "ts_session"
+_COOKIE_SECRET = os.getenv("SESSION_SECRET", "titanswarm-secret-change-in-prod")
+_COOKIE_DAYS   = 30
+
+def _sign(payload: str) -> str:
+    return hmac.new(_COOKIE_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+def _make_cookie_value(uid: int, username: str) -> str:
+    payload = f"{uid}:{username}"
+    return f"{payload}:{_sign(payload)}"
+
+def _verify_cookie(value: str):
+    """Returns (user_id, username) if signature valid, else None."""
+    try:
+        last_colon = value.rfind(":")
+        if last_colon == -1:
+            return None
+        payload, sig = value[:last_colon], value[last_colon + 1:]
+        if not hmac.compare_digest(_sign(payload), sig):
+            return None
+        uid_str, username = payload.split(":", 1)
+        return int(uid_str), username
+    except Exception:
+        return None
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SESSION STATE INIT
 # ─────────────────────────────────────────────────────────────────────────────
 if "repo" not in st.session_state:
@@ -457,6 +488,19 @@ if "repo" not in st.session_state:
     _r = PostgresRepository(dsn)
     run_async(_r.init_db())
     st.session_state.repo = _r
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COOKIE MANAGER — must be initialised at top-level (renders a hidden component)
+# ─────────────────────────────────────────────────────────────────────────────
+_cookie_manager = stx.CookieManager(key="ts_cookie_mgr")
+
+# Restore session from cookie if not already in session_state
+if "user_id" not in st.session_state:
+    _cv = _cookie_manager.get(cookie=_COOKIE_NAME)
+    if _cv:
+        _restored = _verify_cookie(_cv)
+        if _restored:
+            st.session_state["user_id"], st.session_state["username"] = _restored
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AUTH GATE — must be satisfied before any other UI renders
@@ -492,6 +536,8 @@ def _render_auth_page():
                 else:
                     st.session_state["user_id"] = uid
                     st.session_state["username"] = username
+                    _cookie_manager.set(_COOKIE_NAME, _make_cookie_value(uid, username),
+                                        expires_at=datetime.now() + timedelta(days=_COOKIE_DAYS))
                     st.rerun()
 
     with tab_register:
@@ -512,6 +558,8 @@ def _render_auth_page():
                     uid = run_async(st.session_state.repo.create_user(new_username, new_password))
                     st.session_state["user_id"] = uid
                     st.session_state["username"] = new_username
+                    _cookie_manager.set(_COOKIE_NAME, _make_cookie_value(uid, new_username),
+                                        expires_at=datetime.now() + timedelta(days=_COOKIE_DAYS))
                     st.success(f"Account created! Welcome, {new_username}.")
                     st.rerun()
                 except ValueError as e:
@@ -677,6 +725,15 @@ with st.sidebar:
 
     st.markdown("")
     st.caption("TitanSwarm v2.0 · Fall 2026 SWE")
+
+    st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
+    _uname = st.session_state.get("username", "")
+    if _uname:
+        st.markdown(f'<div style="font-size:0.75rem;color:#64748b;margin-bottom:6px;">Signed in as <b style="color:#94a3b8">{_html.escape(_uname)}</b></div>', unsafe_allow_html=True)
+    if st.button("Sign Out", use_container_width=True):
+        _cookie_manager.delete(_COOKIE_NAME)
+        st.session_state.clear()
+        st.rerun()
 
     st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
     _uname = st.session_state.get("username", "")
