@@ -121,7 +121,9 @@ section[data-testid="stSidebar"] {
     border-right: none !important;
 }
 section[data-testid="stSidebar"] * { color: #94a3b8 !important; }
-section[data-testid="stSidebar"] .stRadio label { font-size: 0.88rem !important; }
+/* Ensure radio inputs remain fully interactive — the wildcard above can suppress pointer events */
+section[data-testid="stSidebar"] input[type="radio"] { pointer-events: auto !important; opacity: 0 !important; }
+section[data-testid="stSidebar"] .stRadio label { font-size: 0.88rem !important; pointer-events: auto !important; }
 
 .nav-logo {
     font-size: 1.3rem; font-weight: 800; color: #fff !important;
