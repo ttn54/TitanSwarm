@@ -97,6 +97,27 @@
 {% endfor %}
 {% endif %}
 
+<!-- ── WORK EXPERIENCE ───────────────────────────────────── -->
+{%- set _exp_to_render = ai_data.tailored_experience if ai_data.tailored_experience else ledger.experience %}
+{% if _exp_to_render %}
+<h2>Work Experience</h2>
+{% for exp in _exp_to_render %}
+<div class="entry">
+    <div class="row">
+        <span class="entry-title">{{ exp.title }}</span>
+        <span class="entry-date">{{ exp.start_date }}{% if exp.end_date %} – {{ exp.end_date }}{% endif %}</span>
+    </div>
+    <div class="row">
+        <span class="entry-sub">{{ exp.company }}</span>
+        {% if exp.location %}<span class="entry-loc">{{ exp.location }}</span>{% endif %}
+    </div>
+    {% if exp.bullets %}
+    <ul>{% for b in exp.bullets %}<li>{{ b | mdbold }}</li>{% endfor %}</ul>
+    {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
 <!-- ── TECHNICAL PROJECTS ────────────────────────────────── -->
 {% if ai_data.tailored_projects %}
 <h2>Technical Projects</h2>
