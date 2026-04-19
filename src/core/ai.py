@@ -267,7 +267,16 @@ class AITailor:
             '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>", "<XYZ bullet 3 — add if relevant>", "<XYZ bullet 4 — add if highly relevant>"]\n'
             '    }\n'
             '  ],\n'
-            '  "tailored_experience": [],\n'
+            '  "tailored_experience": [\n'
+            '    {\n'
+            '      "title": "<exact job title from context>",\n'
+            '      "company": "<exact company name>",\n'
+            '      "start_date": "<start date as in context>",\n'
+            '      "end_date": "<end date or Present>",\n'
+            '      "location": "<city or Remote>",\n'
+            '      "bullets": ["<XYZ bullet 1 with JD keyword>", "<XYZ bullet 2>"]\n'
+            '    }\n'
+            '  ],\n'
             '  "q_and_a_responses": {"<question>": "<answer>"},\n'
             '  "missing_skills": ["<exact tool/language from JD that is NOT in candidate context>"]\n'
             '}'
@@ -385,7 +394,12 @@ class AITailor:
             "  For the 'tech' field per project: list ONLY the 4-5 techs from that project "
             "with the highest overlap with THIS JD's keywords — not the full stack.\n"
             "  BULLET COUNT RULE: give 4 bullets to projects with keyword_overlap_count >= 3; give 2 bullets to projects with keyword_overlap_count <= 2.\n"
-            "3. For tailored_experience: leave this array empty — work experience is not included on this resume.\n"
+            "3. For tailored_experience: if the CANDIDATE'S CONTEXT contains a 'WORK EXPERIENCE' section, "
+            "populate this array with each role. For each entry rewrite the bullets in XYZ format "
+            "('Accomplished X, as measured by Y, by doing Z') and naturally inject the top 3-5 exact JD keywords "
+            "wherever truthful. Preserve title, company, start_date, end_date, and location exactly as written "
+            "in the context. Do NOT invent roles, companies, dates, or metrics. "
+            "If the context has NO work experience entries, output an empty array for this field.\n"
             "4. Do NOT invent project names, tech stacks, dates, or metrics not present in the context.\n\n"
             f"CANDIDATE'S CONTEXT:\n{resume_text}"
         )
@@ -414,7 +428,9 @@ class AITailor:
             f"Set keyword_overlap_count on each selected project to the number of JD keywords matched. "
             f"Give 4 bullets to projects with keyword_overlap_count >= 3; give only 2 bullets to projects with keyword_overlap_count <= 2. "
             f"Preserve project name as title exactly.\n"
-            f"4. Leave tailored_experience as an empty array [].\n"
+            f"4. For tailored_experience: look for a 'WORK EXPERIENCE' section in the candidate's context above. "
+            f"If found, include each role with XYZ-format bullets injecting JD keywords truthfully. "
+            f"If the context has no WORK EXPERIENCE section, output an empty array [].\n"
             f"5. Answer these application questions (if any):\n{questions_str}\n\n"
             f"job_id to use in output: {job.id}"
         )
