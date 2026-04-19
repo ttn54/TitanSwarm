@@ -317,6 +317,79 @@ def avatar_html(company: str, size: int = 44, radius: int = 12) -> str:
             f'display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
             f'{initials}</div>')
 
+def _build_manual_ledger_section(education: list[dict], experience: list[dict]) -> str:
+    """
+    Converts profile education + experience dicts into the EDUCATION /
+    WORK EXPERIENCE text format that _parse_ledger_for_pdf already understands.
+    Returns "" if both lists are empty.
+    """
+    lines: list[str] = []
+
+    if education:
+        lines.append("EDUCATION")
+        for e in education:
+            degree = e.get("degree", "").strip()
+            inst   = e.get("institution", "").strip()
+            start  = e.get("start_date", "").strip()
+            end    = e.get("end_date", "").strip()
+            if not degree and not inst:
+                continue
+            date_str = f"  {start} – {end}" if (start or end) else ""
+            lines.append(f"{degree}{date_str}")
+            if inst:
+                lines.append(inst)
+            for b in e.get("bullets", []):
+                if b.strip():
+                    lines.append(f"• {b.strip()}")
+            lines.append("")
+
+    if experience:
+        lines.append("WORK EXPERIENCE")
+        for ex in experience:
+            title   = ex.get("title", "").strip()
+            company = ex.get("company", "").strip()
+            start   = ex.get("start_date", "").strip()
+            end     = ex.get("end_date", "").strip()
+            if not title and not company:
+                continue
+            date_str = f"  {start} – {end}" if (start or end) else ""
+            lines.append(f"{title}{date_str}")
+            if company:
+                lines.append(company)
+            for b in ex.get("bullets", []):
+                if b.strip():
+                    lines.append(f"• {b.strip()}")
+            lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def _merge_structured(profile_entries: list[dict], ledger_entries: list[dict]) -> list[dict]:
+    """
+    Merge profile (manually entered) and ledger-parsed (resume upload / website)
+    entries without duplicates. Profile entries take priority and come first.
+    Deduplication key: lowercase degree/title + institution/company.
+    """
+    seen: set[str] = set()
+    result: list[dict] = []
+
+    for e in profile_entries:
+        key = (e.get("degree") or e.get("title") or "").lower() + "|" + \
+              (e.get("institution") or e.get("company") or "").lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(e)
+
+    for e in ledger_entries:
+        key = (e.get("degree") or e.get("title") or "").lower() + "|" + \
+              (e.get("institution") or e.get("company") or "").lower()
+        if key and key not in seen:
+            seen.add(key)
+            result.append(e)
+
+    return result
+
+
 async def _run_discovery(repo, role: str, location: str, count: int, user_id: int = 1) -> list[str]:
     """Clears previous DISCOVERED jobs, runs a real JobSpy sweep.
     Returns the list of ALL job IDs found by this sweep (new + already in DB)."""
@@ -349,8 +422,12 @@ def _parse_ledger_for_pdf(ledger_path: str) -> dict:
         r'^(EDUCATION|TECHNICAL PROJECTS?|TECHNICAL SKILLS?|WORK EXPERIENCE|EXPERIENCE|PROJECTS?)$',
         re.IGNORECASE
     )
-    # Date pattern: looks like "Jan 2026 – Present" or "May 2025 – Present"
-    DATE_RE = re.compile(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}')
+    # Date pattern: "Jan 2026", "May 2025", or just "2024" (year-only from website enricher)
+    DATE_RE = re.compile(
+        r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}'
+        r'|\b\d{4}\b'
+        r'|–\s*Present'
+    )
 
     education = []
     experience = []
@@ -611,6 +688,14 @@ _prev_on_prefs = st.session_state.get("_on_prefs_page", False)
 # Initial seed on first session load
 if "_pf_name" not in st.session_state:
     _seed_profile_keys()
+
+if "_edu_entries" not in st.session_state:
+    _pf_init = st.session_state.profile
+    st.session_state["_edu_entries"] = list(_pf_init.education) if _pf_init.education else [{}]
+
+if "_exp_entries" not in st.session_state:
+    _pf_init = st.session_state.profile
+    st.session_state["_exp_entries"] = list(_pf_init.experience) if _pf_init.experience else [{}]
 
 if "pref_role" not in st.session_state:
     _pf_prefs = st.session_state.profile
@@ -987,8 +1072,9 @@ if nav == "Job Feed":
                                             "github":   st.session_state.get("_pf_github")   or _pi.github   or "",
                                             "website":  st.session_state.get("_pf_website")  or "",
                                         },
-                                        "education":  _structured["education"],
-                                        "experience": _structured["experience"],
+                                        # Merge: profile (manually entered) + ledger-parsed (uploaded resume / website)
+                                        "education":  _merge_structured(_pi.education, _structured["education"]),
+                                        "experience": _merge_structured(_pi.experience, _structured["experience"]),
                                     }
                                     # Sanitize company + role for a readable filename
                                     import re as _re
@@ -1300,6 +1386,10 @@ elif nav == "Preferences":
     # the user just navigated here — re-seed all form keys from saved profile.
     if not _prev_on_prefs:
         _seed_profile_keys()
+        # Seed education/experience entry lists from saved profile
+        _pf_seed = st.session_state.profile
+        st.session_state["_edu_entries"] = list(_pf_seed.education) if _pf_seed.education else [{}]
+        st.session_state["_exp_entries"] = list(_pf_seed.experience) if _pf_seed.experience else [{}]
 
     # Flush any pending autofill values BEFORE any keyed widget is instantiated.
     # This avoids the "cannot be modified after widget is instantiated" error.
@@ -1637,4 +1727,155 @@ elif nav == "Preferences":
                         st.rerun()
                 except Exception as e:
                     st.error(f"Resume ingestion failed: {e}")
+
+    # ── EDUCATION ──────────────────────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<div class="profile-card-title">Education</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.75rem;">Added here, your degrees appear in every generated resume PDF.</div>', unsafe_allow_html=True)
+
+        _edu_list = st.session_state.get("_edu_entries", [{}])
+        for _ei, _edu in enumerate(_edu_list):
+            with st.expander(
+                _edu.get("degree") or f"Degree {_ei + 1}",
+                expanded=not bool(_edu.get("degree"))
+            ):
+                _ec1, _ec2 = st.columns(2)
+                with _ec1:
+                    st.text_input("Degree / Programme",
+                        value=_edu.get("degree", ""),
+                        placeholder="BSc Computer Science",
+                        key=f"_edu_degree_{_ei}")
+                    st.text_input("Start Date",
+                        value=_edu.get("start_date", ""),
+                        placeholder="Sep 2022",
+                        key=f"_edu_start_{_ei}")
+                with _ec2:
+                    st.text_input("Institution",
+                        value=_edu.get("institution", ""),
+                        placeholder="University of British Columbia",
+                        key=f"_edu_inst_{_ei}")
+                    st.text_input("End Date",
+                        value=_edu.get("end_date", ""),
+                        placeholder="Apr 2026 or Present",
+                        key=f"_edu_end_{_ei}")
+                st.text_input("Location (optional)",
+                    value=_edu.get("location", ""),
+                    placeholder="Vancouver, BC",
+                    key=f"_edu_loc_{_ei}")
+                if st.button("🗑 Remove", key=f"_edu_rm_{_ei}", use_container_width=False):
+                    st.session_state["_edu_entries"].pop(_ei)
+                    st.rerun()
+
+        if st.button("➕ Add Degree", use_container_width=False):
+            st.session_state["_edu_entries"].append({})
+            st.rerun()
+
+    # ── WORK EXPERIENCE ────────────────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<div class="profile-card-title">Work Experience</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.75rem;">Added here, your roles and bullet points appear in every generated resume PDF.</div>', unsafe_allow_html=True)
+
+        _exp_list = st.session_state.get("_exp_entries", [{}])
+        for _xi, _exp in enumerate(_exp_list):
+            with st.expander(
+                ((_exp.get("title") or "") + (" @ " + _exp.get("company", "") if _exp.get("company") else "")) or f"Role {_xi + 1}",
+                expanded=not bool(_exp.get("title"))
+            ):
+                _xc1, _xc2 = st.columns(2)
+                with _xc1:
+                    st.text_input("Job Title",
+                        value=_exp.get("title", ""),
+                        placeholder="Software Engineer Intern",
+                        key=f"_exp_title_{_xi}")
+                    st.text_input("Start Date",
+                        value=_exp.get("start_date", ""),
+                        placeholder="May 2025",
+                        key=f"_exp_start_{_xi}")
+                with _xc2:
+                    st.text_input("Company",
+                        value=_exp.get("company", ""),
+                        placeholder="Shopify",
+                        key=f"_exp_company_{_xi}")
+                    st.text_input("End Date",
+                        value=_exp.get("end_date", "Present"),
+                        placeholder="Aug 2025 or Present",
+                        key=f"_exp_end_{_xi}")
+                st.text_input("Location (optional)",
+                    value=_exp.get("location", ""),
+                    placeholder="Vancouver, BC or Remote",
+                    key=f"_exp_loc_{_xi}")
+                st.text_area("Bullet Points (one per line)",
+                    value="\n".join(_exp.get("bullets", [])),
+                    placeholder="• Reduced deploy time by 40% with automated CI/CD pipelines.",
+                    height=110,
+                    key=f"_exp_bullets_{_xi}")
+                if st.button("🗑 Remove", key=f"_exp_rm_{_xi}", use_container_width=False):
+                    st.session_state["_exp_entries"].pop(_xi)
+                    st.rerun()
+
+        if st.button("➕ Add Role", use_container_width=False):
+            st.session_state["_exp_entries"].append({})
+            st.rerun()
+
+    # ── SAVE EDUCATION & EXPERIENCE ────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("💾  Save Education & Experience", type="primary", use_container_width=True):
+        _new_edu: list[dict] = []
+        for _ei in range(len(st.session_state.get("_edu_entries", []))):
+            _d = st.session_state.get(f"_edu_degree_{_ei}", "").strip()
+            _i = st.session_state.get(f"_edu_inst_{_ei}", "").strip()
+            if _d or _i:
+                _new_edu.append({
+                    "degree": _d,
+                    "institution": _i,
+                    "start_date": st.session_state.get(f"_edu_start_{_ei}", "").strip(),
+                    "end_date":   st.session_state.get(f"_edu_end_{_ei}", "").strip(),
+                    "location":   st.session_state.get(f"_edu_loc_{_ei}", "").strip(),
+                    "bullets":    [],
+                })
+
+        _new_exp: list[dict] = []
+        for _xi in range(len(st.session_state.get("_exp_entries", []))):
+            _t = st.session_state.get(f"_exp_title_{_xi}", "").strip()
+            _c = st.session_state.get(f"_exp_company_{_xi}", "").strip()
+            if _t or _c:
+                _bullets_raw = st.session_state.get(f"_exp_bullets_{_xi}", "")
+                _bullets = [b.lstrip("•").strip() for b in _bullets_raw.splitlines() if b.strip()]
+                _new_exp.append({
+                    "title":      _t,
+                    "company":    _c,
+                    "start_date": st.session_state.get(f"_exp_start_{_xi}", "").strip(),
+                    "end_date":   st.session_state.get(f"_exp_end_{_xi}", "Present").strip(),
+                    "location":   st.session_state.get(f"_exp_loc_{_xi}", "").strip(),
+                    "bullets":    _bullets,
+                })
+
+        # Persist to profile
+        _cur_pf2 = st.session_state.profile
+        _saved_pf2 = _cur_pf2.model_copy(update={"education": _new_edu, "experience": _new_exp})
+        _save_ok2 = run_async(repo.save_profile(_saved_pf2, user_id=_USER_ID))
+        if _save_ok2:
+            st.session_state.profile = _saved_pf2
+            st.session_state["_edu_entries"] = _new_edu if _new_edu else [{}]
+            st.session_state["_exp_entries"] = _new_exp if _new_exp else [{}]
+            # Write to ledger so tailor has it in context
+            _manual_block = _build_manual_ledger_section(_new_edu, _new_exp)
+            if _manual_block:
+                _cur_ledger_m = run_async(repo.get_ledger(_USER_ID))
+                _m_marker = "## Manual Profile:"
+                _base_m = _cur_ledger_m.split(_m_marker)[0].rstrip() if _cur_ledger_m else ""
+                _new_ledger_m = _base_m + f"\n\n{_m_marker}\n\n{_manual_block}"
+                run_async(repo.save_ledger(_USER_ID, _new_ledger_m))
+                if st.session_state.tailor:
+                    _lm_m = LedgerManager.from_content(_new_ledger_m, db_path="data/faiss.index")
+                    _lm_m.model = st.session_state.st_model
+                    _lm_m.build_index()
+                    st.session_state.tailor.ledger = _lm_m
+                st.session_state.pop("resume_text_cache", None)
+            st.toast("Education & Experience saved!", icon="🎓")
+        else:
+            st.error("Save failed — please try again.")
+        st.rerun()
 

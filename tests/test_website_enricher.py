@@ -104,7 +104,7 @@ def test_fetch_website_context_returns_empty_on_empty_page():
 
     mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.text = "<html><body></body></html>"
+    mock_response.text = "<html><body><p>  </p></body></html>"
     mock_response.raise_for_status = MagicMock()
 
     with patch("httpx.get", return_value=mock_response):

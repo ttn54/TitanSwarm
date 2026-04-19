@@ -60,15 +60,19 @@ def _call_gemini(text: str) -> str:
         "Return EXACTLY this format (omit any section that has no data):\n\n"
         "## Website:\n\n"
         "EDUCATION\n"
-        "<Degree Name>  <Mon YYYY> – <Mon YYYY or Present>\n"
+        "<Degree Name>  <start> – <end>\n"
         "<Institution Name>\n"
         "(repeat for each degree)\n\n"
         "WORK EXPERIENCE\n"
-        "<Job Title>  <Mon YYYY> – <Mon YYYY or Present>\n"
+        "<Job Title>  <start> – <end>\n"
         "<Company Name>\n"
         "• <one achievement bullet per line>\n"
         "(repeat for each role)\n\n"
-        "Use three-letter month abbreviations (Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec).\n"
+        "Rules for dates:\n"
+        "- Use three-letter month + year when known (e.g. Jan 2024)\n"
+        "- Use year only when month is unknown (e.g. 2024)\n"
+        "- Use 'Present' for current roles\n"
+        "- If NO date info at all is available for a current role, write '– Present'\n\n"
         "If none of these sections can be found, reply with exactly: NO_DATA\n\n"
         "--- WEBSITE TEXT ---\n"
         f"{text[:_MAX_TEXT_CHARS]}"
@@ -108,7 +112,7 @@ def fetch_website_context(url: str) -> str:
         return ""
 
     text = _extract_text(html)
-    if len(text) < 50:  # page is effectively empty (JS-only, blank, etc.)
+    if len(text) < 20:  # page is effectively empty (JS-only, blank, etc.)
         return ""
 
     result = _call_gemini(text)

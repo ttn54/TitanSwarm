@@ -83,6 +83,7 @@ class UserProfileModel(Base):
     website: Mapped[str] = mapped_column(String, default="")
     base_summary: Mapped[str] = mapped_column(Text, default="")
     skills_json: Mapped[str] = mapped_column(String, default="[]")
+    education_json: Mapped[str] = mapped_column(Text, default="[]")
     experience_json: Mapped[str] = mapped_column(Text, default="[]")
     pref_role: Mapped[str] = mapped_column(String, default="")
     pref_location: Mapped[str] = mapped_column(String, default="")
@@ -97,6 +98,7 @@ class UserProfileModel(Base):
             website=self.website,
             base_summary=self.base_summary,
             skills=json.loads(self.skills_json) if self.skills_json else [],
+            education=json.loads(self.education_json) if self.education_json else [],
             experience=json.loads(self.experience_json) if self.experience_json else [],
             pref_role=self.pref_role or "",
             pref_location=self.pref_location or "",
@@ -143,6 +145,7 @@ class PostgresRepository(JobRepository):
             ("jobs",             "salary_currency",  "TEXT DEFAULT ''"),
             ("jobs",             "salary_interval",  "TEXT DEFAULT ''"),
             ("user_profile",     "user_id",          "INTEGER DEFAULT 1"),
+            ("user_profile",     "education_json",   "TEXT DEFAULT '[]'"),
             ("tailored_results", "user_id",          "INTEGER DEFAULT 1"),
         ]
         async with self.engine.begin() as conn:
@@ -358,6 +361,7 @@ class PostgresRepository(JobRepository):
                 "website": profile.website,
                 "base_summary": profile.base_summary,
                 "skills_json": json.dumps(profile.skills),
+                "education_json": json.dumps(profile.education),
                 "experience_json": json.dumps(profile.experience),
                 "pref_role": profile.pref_role,
                 "pref_location": profile.pref_location,
