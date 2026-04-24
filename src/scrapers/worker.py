@@ -103,7 +103,7 @@ class SourcingEngine:
                 search_term=role,
                 location=location,
                 results_wanted=results_wanted,
-                linkedin_fetch_description=True,
+                linkedin_fetch_description=False,
                 country_indeed=country,
             )
 
