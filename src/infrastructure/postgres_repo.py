@@ -393,9 +393,9 @@ class PostgresRepository(JobRepository):
         """Returns the saved profile for a user, or None if none exists."""
         async with self.async_session() as session:
             result = await session.execute(
-                select(UserProfileModel).where(UserProfileModel.user_id == user_id)
+                select(UserProfileModel).where(UserProfileModel.user_id == user_id).limit(1)
             )
-            model = result.scalar_one_or_none()
+            model = result.scalars().first()
             if model:
                 return model.to_pydantic()
             return None
@@ -442,9 +442,9 @@ class PostgresRepository(JobRepository):
                 select(TailoredResultModel).where(
                     TailoredResultModel.job_id == job_id,
                     TailoredResultModel.user_id == user_id,
-                )
+                ).limit(1)
             )
-            model = result.scalar_one_or_none()
+            model = result.scalars().first()
             if model:
                 return (model.ai_json, model.pdf_bytes, model.cover_letter_text)
             return None

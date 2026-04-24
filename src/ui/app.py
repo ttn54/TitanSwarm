@@ -1412,6 +1412,9 @@ elif nav == "Preferences":
 
     with pc1:
         # ── Identity ──
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        
         with st.container(border=True):
             st.markdown('<div class="profile-card-title">Identity</div>', unsafe_allow_html=True)
             a1, a2 = st.columns(2)
