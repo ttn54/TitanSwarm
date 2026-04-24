@@ -36,16 +36,16 @@ class JobModel(Base):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    company: Mapped[str] = mapped_column(String)
-    role: Mapped[str] = mapped_column(String)
-    status: Mapped[JobStatus] = mapped_column(SQLEnum(JobStatus))
+    company: Mapped[str] = mapped_column(String, index=True)
+    role: Mapped[str] = mapped_column(String, index=True)
+    status: Mapped[JobStatus] = mapped_column(SQLEnum(JobStatus), index=True)
     job_description: Mapped[str] = mapped_column(String)
     url: Mapped[str] = mapped_column(String)
     required_skills: Mapped[str] = mapped_column(String, default="[]")
     custom_questions: Mapped[str] = mapped_column(String, default="[]")
     location: Mapped[str] = mapped_column(String, default="")
     date_posted: Mapped[str] = mapped_column(String, default="")
-    user_id: Mapped[int] = mapped_column(Integer, default=1)
+    user_id: Mapped[int] = mapped_column(Integer, default=1, index=True)
     salary_min: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     salary_max: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     salary_currency: Mapped[str] = mapped_column(String, default="")
@@ -120,11 +120,18 @@ class PostgresRepository(JobRepository):
     SQLAlchemy-based asynchronous repository for PostgreSQL (and SQLite for testing).
     """
     def __init__(self, dsn: str = "sqlite+aiosqlite:///:memory:"):
-        self.engine = create_async_engine(dsn, echo=False)
+        self.is_postgres = dsn.startswith("postgresql")
+        
+        # Apply connection pooling only for PostgreSQL, SQLite :memory: doesn't support these pool args well
+        engine_kwargs = {"echo": False}
+        if self.is_postgres:
+            engine_kwargs["pool_size"] = 20
+            engine_kwargs["max_overflow"] = 50
+
+        self.engine = create_async_engine(dsn, **engine_kwargs)
         self.async_session = async_sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
-        self.is_postgres = dsn.startswith("postgresql")
 
     async def init_db(self):
         """Creates tables if they do not exist, then migrates new columns."""

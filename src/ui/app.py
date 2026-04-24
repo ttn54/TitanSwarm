@@ -1249,12 +1249,22 @@ elif nav == "My Applications":
     st.markdown('<div class="main-subheader">Track every opportunity across your pipeline.</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Fetch all buckets
+    # Fetch all buckets concurrently using asyncio.gather to drastically reduce I/O waiting
+    async def fetch_all_buckets():
+        return await asyncio.gather(
+            repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID),
+            repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID),
+            repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=_USER_ID),
+            repo.get_jobs_by_status(JobStatus.REJECTED, user_id=_USER_ID),
+        )
+    
+    _pr, _app, _int, _rej = run_async(fetch_all_buckets())
+
     buckets = {
-        "Pending Review": run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID)),
-        "Applied":        run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID)),
-        "Interview":      run_async(repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=_USER_ID)),
-        "Rejected":       run_async(repo.get_jobs_by_status(JobStatus.REJECTED, user_id=_USER_ID)),
+        "Pending Review": _pr,
+        "Applied":        _app,
+        "Interview":      _int,
+        "Rejected":       _rej,
     }
     bucket_colors = {
         "Pending Review": "#f59e0b",
