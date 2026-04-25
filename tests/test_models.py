@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from src.core.models import Job, JobStatus, TailoredApplication, TailoredProject, TailoredExperience
+from src.core.models import Job, JobStatus, TailoredApplication, TailoredProject, TailoredExperience, TailoredEducation
 
 def test_job_model_creation():
     job = Job(
@@ -200,3 +200,36 @@ def test_tailored_application_missing_skills_defaults_to_empty():
         tailored_experience=[],
     )
     assert app.missing_skills == []
+
+
+def test_tailored_education_model():
+    edu = TailoredEducation(
+        degree="Computer Science",
+        institution="SFU",
+        start_date="Sep 2022",
+        end_date="Present",
+        location="Burnaby, BC",
+        bullets=["Maintained strong academic standing while balancing internship work."],
+    )
+    assert edu.institution == "SFU"
+    assert len(edu.bullets) == 1
+
+
+def test_tailored_application_has_tailored_education():
+    app = TailoredApplication(
+        job_id="j7",
+        skills_to_highlight={"Languages": ["Python"]},
+        tailored_projects=[],
+        tailored_experience=[],
+        tailored_education=[
+            TailoredEducation(
+                degree="Computer Science",
+                institution="SFU",
+                start_date="Sep 2022",
+                end_date="Present",
+                bullets=["Completed core systems and algorithms coursework."],
+            )
+        ],
+    )
+    assert len(app.tailored_education) == 1
+    assert app.tailored_education[0].degree == "Computer Science"

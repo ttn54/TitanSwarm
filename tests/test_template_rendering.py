@@ -176,3 +176,55 @@ class TestLangaraInlineBullet:
         assert '<span class="entry-title">Langara' not in html, (
             "Langara must not be a separate education entry — it should be an inline bullet"
         )
+
+
+class TestEducationRenderPriority:
+    def test_template_prefers_ai_tailored_education(self, template_env, sample_personal_info, sample_ai_data):
+        ai_with_edu = sample_ai_data.model_copy(update={
+            "tailored_education": [
+                {
+                    "degree": "Computer Science",
+                    "institution": "SFU",
+                    "start_date": "Sep 2022",
+                    "end_date": "Present",
+                    "location": "",
+                    "bullets": ["Completed systems and algorithms coursework relevant to backend roles."],
+                }
+            ]
+        })
+        ledger = {
+            "education": [
+                {
+                    "degree": "Old Degree",
+                    "institution": "Old School",
+                    "start_date": "Jan 2020",
+                    "end_date": "Jan 2021",
+                    "location": "",
+                    "bullets": [],
+                }
+            ],
+            "experience": [],
+        }
+        html = _render(template_env, sample_personal_info, ai_with_edu, ledger_extra=ledger)
+        assert "Computer Science" in html
+        assert "SFU" in html
+        assert "Old Degree" not in html
+
+    def test_template_falls_back_to_ledger_education_when_ai_empty(self, template_env, sample_personal_info, sample_ai_data):
+        ai_no_edu = sample_ai_data.model_copy(update={"tailored_education": []})
+        ledger = {
+            "education": [
+                {
+                    "degree": "Computer Science",
+                    "institution": "SFU",
+                    "start_date": "Sep 2022",
+                    "end_date": "Present",
+                    "location": "",
+                    "bullets": [],
+                }
+            ],
+            "experience": [],
+        }
+        html = _render(template_env, sample_personal_info, ai_no_edu, ledger_extra=ledger)
+        assert "Computer Science" in html
+        assert "SFU" in html

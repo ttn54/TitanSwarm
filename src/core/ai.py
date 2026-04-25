@@ -89,6 +89,32 @@ def _filter_missing_skills(missing: list[str], resume_text: str) -> list[str]:
     return [s for s in missing if not _in_context(s)]
 
 
+def _contains_placeholder_bullet(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    patterns = [
+        "[x]",
+        "[y]",
+        "[z]",
+        "accomplished [x] by doing [y], resulting in [z]",
+        "accomplished x by doing y, resulting in z",
+    ]
+    return any(p in t for p in patterns)
+
+
+def _has_placeholder_bullets(result: TailoredApplication) -> bool:
+    for exp in result.tailored_experience:
+        for b in exp.bullets:
+            if _contains_placeholder_bullet(b):
+                return True
+    for edu in result.tailored_education:
+        for b in edu.bullets:
+            if _contains_placeholder_bullet(b):
+                return True
+    return False
+
+
 def _load_dotenv():
     """Minimal .env loader — no dependency on python-dotenv."""
     env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
@@ -285,6 +311,16 @@ class AITailor:
             '      "bullets": ["<XYZ bullet 1 with JD keyword>", "<XYZ bullet 2>"]\n'
             '    }\n'
             '  ],\n'
+            '  "tailored_education": [\n'
+            '    {\n'
+            '      "degree": "<exact degree/program text from context>",\n'
+            '      "institution": "<exact school/institution from context>",\n'
+            '      "start_date": "<start date as in context>",\n'
+            '      "end_date": "<end date or Present>",\n'
+            '      "location": "<city or empty>",\n'
+            '      "bullets": ["<optional fact-based education bullet>"]\n'
+            '    }\n'
+            '  ],\n'
             '  "q_and_a_responses": {"<question>": "<answer>"},\n'
             '  "missing_skills": ["<exact tool/language from JD that is NOT in candidate context>"]\n'
             '}'
@@ -426,7 +462,13 @@ class AITailor:
             "wherever truthful. Preserve title, company, start_date, end_date, and location exactly as written "
             "in the context. Do NOT invent roles, companies, dates, or metrics. "
             "If the context has NO work experience entries, output an empty array for this field.\n"
-            "4. Do NOT invent project names, tech stacks, dates, or metrics not present in the context.\n\n"
+            "4. For tailored_education: if the CANDIDATE'S CONTEXT contains an 'EDUCATION' section, populate this "
+            "array with each education entry using exact source wording for degree and institution. Preserve "
+            "start_date/end_date/location exactly as written when present. Do NOT normalize degree wording and do "
+            "NOT invent GPA, awards, or certifications. If no education entries exist in context, output an empty "
+            "array for this field.\n"
+            "5. Never output placeholder bullets like '[X]'/'[Y]'/'[Z]'. Every bullet must be concrete and factual.\n"
+            "6. Do NOT invent project names, tech stacks, dates, or metrics not present in the context.\n\n"
             f"CANDIDATE'S CONTEXT:\n{resume_text}"
         )
 
@@ -457,11 +499,22 @@ class AITailor:
             f"4. For tailored_experience: look for a 'WORK EXPERIENCE' section in the candidate's context above. "
             f"If found, include each role with XYZ-format bullets injecting JD keywords truthfully. "
             f"If the context has no WORK EXPERIENCE section, output an empty array [].\n"
-            f"5. Answer these application questions (if any):\n{questions_str}\n\n"
+            f"5. For tailored_education: look for an 'EDUCATION' section in candidate context. Use exact source "
+            f"wording for degree and institution. Preserve dates exactly. No invented GPA/awards/certs. "
+            f"Output [] if no education exists.\n"
+            f"6. Never output placeholder bullets like '[X]'/'[Y]'/'[Z]'.\n"
+            f"7. Answer these application questions (if any):\n{questions_str}\n\n"
             f"job_id to use in output: {job.id}"
         )
 
         result = await self._call_llm(system_prompt, user_prompt)
+        if _has_placeholder_bullets(result):
+            retry_prompt = (
+                user_prompt +
+                "\n\nRETRY INSTRUCTION: Your previous output used placeholder bullet text. "
+                "Regenerate with concrete, fact-based bullets only. Do not use [X], [Y], [Z], or template phrases."
+            )
+            result = await self._call_llm(system_prompt, retry_prompt)
         # Hard cap: never show more than 3 projects regardless of AI output
         result.tailored_projects = result.tailored_projects[:3]
         # Sort by overlap descending so the best-matching project is always first

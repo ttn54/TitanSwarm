@@ -136,9 +136,10 @@
 {% endif %}
 
 <!-- ── EDUCATION ─────────────────────────────────────────── -->
-{% if ledger.education %}
+{%- set _edu_to_render = ai_data.tailored_education if ai_data.tailored_education else ledger.education %}
+{% if _edu_to_render %}
 <h2>Education</h2>
-{% for edu in ledger.education %}
+{% for edu in _edu_to_render %}
 <div class="entry">
     <div class="row">
         <span class="entry-title">{{ edu.degree }}</span>

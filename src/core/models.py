@@ -63,6 +63,15 @@ class TailoredExperience(BaseModel):
     location: str = Field(default="", description="e.g. 'Burnaby, BC'")
     bullets: list[str] = Field(..., description="1-2 bullets in XYZ format rewritten to mirror the JD's keywords. ONLY facts from the resume.")
 
+
+class TailoredEducation(BaseModel):
+    degree: str = Field(..., description="Exact degree/program text from candidate context.")
+    institution: str = Field(..., description="School/institution name from candidate context.")
+    start_date: str = Field(..., description="e.g. 'Sep 2022'")
+    end_date: str = Field(..., description="e.g. 'Present'")
+    location: str = Field(default="", description="e.g. 'Burnaby, BC'")
+    bullets: list[str] = Field(default_factory=list, description="Optional education bullets rewritten from source facts only.")
+
 class TailoredApplication(BaseModel):
     job_id: str
     skills_to_highlight: dict[str, list[str]] = Field(
@@ -71,6 +80,7 @@ class TailoredApplication(BaseModel):
     )
     tailored_projects: list[TailoredProject] = Field(..., description="Each project from the resume with bullets rewritten for this JD.")
     tailored_experience: list[TailoredExperience] = Field(..., description="Each work experience entry with bullets rewritten for this JD.")
+    tailored_education: list[TailoredEducation] = Field(default_factory=list, description="Each education entry rewritten from source facts only.")
     q_and_a_responses: dict[str, str] = Field(default_factory=dict, description="Answers to custom portal questions.")
     missing_skills: list[str] = Field(default_factory=list, description="Skills or technologies mentioned in the JD that are NOT present anywhere in the candidate's context. These are genuine gaps the candidate should be aware of. Be specific — list individual tools/languages, not categories (e.g. 'Kubernetes', 'Ansible', not 'DevOps skills').")
 
