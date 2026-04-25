@@ -228,3 +228,34 @@ class TestEducationRenderPriority:
         html = _render(template_env, sample_personal_info, ai_no_edu, ledger_extra=ledger)
         assert "Computer Science" in html
         assert "SFU" in html
+
+
+class TestResumeStructureOrder:
+    def test_section_order_is_skills_work_projects_education(self, template_env, sample_personal_info, sample_ai_data):
+        ai_with_edu = sample_ai_data.model_copy(update={
+            "tailored_education": [
+                {
+                    "degree": "Computer Science",
+                    "institution": "SFU",
+                    "start_date": "Sep 2022",
+                    "end_date": "Present",
+                    "location": "",
+                    "bullets": [],
+                }
+            ]
+        })
+        html = _render(template_env, sample_personal_info, ai_with_edu)
+
+        i_skills = html.index("Technical Skills")
+        i_work = html.index("Work Experience")
+        i_projects = html.index("Technical Projects")
+        i_edu = html.index("Education")
+
+        assert i_skills < i_work < i_projects < i_edu
+
+
+class TestHeaderRows:
+    def test_contact_is_split_across_two_rows(self, template_env, sample_personal_info, sample_ai_data):
+        html = _render(template_env, sample_personal_info, sample_ai_data)
+        assert 'class="contact-row contact-row-1"' in html
+        assert 'class="contact-row contact-row-2"' in html
