@@ -143,6 +143,26 @@ def test_build_manual_ledger_section_empty_inputs():
     assert text.strip() == ""
 
 
+def test_parse_ledger_two_line_education_keeps_degree_and_institution(tmp_path):
+    """2-line education format should parse degree from line 1 and school/date from line 2."""
+    from src.ui.app import _parse_ledger_for_pdf
+
+    ledger_text = (
+        "EDUCATION\n"
+        "Computing Science\n"
+        "SFU Sep 2022 - Present\n"
+    )
+    p = tmp_path / "ledger.md"
+    p.write_text(ledger_text, encoding="utf-8")
+
+    parsed = _parse_ledger_for_pdf(str(p))
+    assert len(parsed["education"]) == 1
+    assert parsed["education"][0]["degree"] == "Computing Science"
+    assert parsed["education"][0]["institution"] == "SFU"
+    assert parsed["education"][0]["start_date"] == "Sep 2022"
+    assert parsed["education"][0]["end_date"] == "Present"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. _merge_structured helper
 # ─────────────────────────────────────────────────────────────────────────────
