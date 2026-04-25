@@ -460,22 +460,21 @@ def _parse_ledger_for_pdf(ledger_path: str) -> dict:
             continue
 
         if current_section == "EDUCATION":
-            # Lines like: "Bachelor of Science, Computing Science May 2025 – Present"
+            # Supported formats:
+            # 1) "Degree Name Sep 2022 - Present" + next line institution
+            # 2) "Degree Name" + next line "Institution Sep 2022 - Present"
             date_m = DATE_RE.search(line)
-            if date_m and not line.startswith("•"):
+            if not line.startswith("•") and date_m:
                 flush(current_entry, current_section)
-                # Extract dates
                 date_str = line[date_m.start():].strip()
                 title_part = line[:date_m.start()].strip()
-                # Next non-empty line is usually the institution name
                 institution = ""
                 j = i + 1
                 while j < len(lines) and not lines[j].strip():
                     j += 1
-                if j < len(lines) and not lines[j].strip().startswith("•"):
+                if j < len(lines) and not lines[j].strip().startswith("•") and not SECTION_RE.match(lines[j].strip()):
                     institution = lines[j].strip()
                     i = j
-                # Parse date range
                 parts = re.split(r'[–—-]', date_str)
                 start_d = parts[0].strip() if parts else ""
                 end_d   = parts[1].strip() if len(parts) > 1 else "Present"
@@ -487,6 +486,31 @@ def _parse_ledger_for_pdf(ledger_path: str) -> dict:
                     "location": "",
                     "bullets": [],
                 }
+            elif not line.startswith("•"):
+                # Two-line variant: degree on current line, institution+date on next line
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines):
+                    next_line = lines[j].strip()
+                    next_date_m = DATE_RE.search(next_line)
+                    if next_date_m and not next_line.startswith("•") and not SECTION_RE.match(next_line):
+                        flush(current_entry, current_section)
+                        degree = line
+                        institution = next_line[:next_date_m.start()].strip()
+                        date_str = next_line[next_date_m.start():].strip()
+                        parts = re.split(r'[–—-]', date_str)
+                        start_d = parts[0].strip() if parts else ""
+                        end_d   = parts[1].strip() if len(parts) > 1 else "Present"
+                        current_entry = {
+                            "institution": institution,
+                            "degree": degree,
+                            "start_date": start_d,
+                            "end_date": end_d,
+                            "location": "",
+                            "bullets": [],
+                        }
+                        i = j
             elif line.startswith("•") and current_entry:
                 current_entry["bullets"].append(line.lstrip("• ").strip())
 
