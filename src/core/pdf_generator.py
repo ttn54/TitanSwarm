@@ -2,7 +2,7 @@ import os
 import re
 from datetime import date as _date_type
 from jinja2 import Environment, FileSystemLoader
-from playwright.async_api import async_playwright
+from src.infrastructure.browser import BrowserManager
 from src.core.models import Job, TailoredApplication, CoverLetterResult, UserProfile
 
 def _md_bold(text: str) -> str:
@@ -151,23 +151,12 @@ class PDFGenerator:
         # Ensure output directory exists
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
-        # Use Playwright to convert HTML to PDF
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            
-            # Load the rendered HTML
-            await page.set_content(rendered_html)
-            
-            # Print to standard A4/Letter size without margins 
-            await page.pdf(
-                path=output_path,
-                format="Letter",
-                print_background=True,
-                margin={"top": "0", "right": "0", "bottom": "0", "left": "0"}
-            )
-            
-            await browser.close()
+        # Use Warm Browser Pool to convert HTML to PDF
+        manager = BrowserManager.get_instance()
+        pdf_bytes = await manager.render_pdf(rendered_html)
+        
+        with open(output_path, "wb") as f:
+            f.write(pdf_bytes)
             
         return output_path
 
@@ -182,16 +171,10 @@ class PDFGenerator:
         """Render the formal cover letter to PDF and return raw bytes."""
         html = compose_cover_letter_html(profile, company, role, cover_letter)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.set_content(html)
-            pdf_bytes = await page.pdf(
-                format="Letter",
-                print_background=True,
-                margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-            )
-            await browser.close()
+        
+        manager = BrowserManager.get_instance()
+        pdf_bytes = await manager.render_pdf(html)
+        
         # Also write to disk so the download button can serve the file
         with open(output_path, "wb") as f:
             f.write(pdf_bytes)

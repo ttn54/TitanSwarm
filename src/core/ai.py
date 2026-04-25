@@ -316,18 +316,15 @@ class AITailor:
 
     async def fetch_missing_description(self, url: str) -> str:
         """Just-in-time scrape for LinkedIn jobs missing descriptions due to lazy loading."""
-        from playwright.async_api import async_playwright
         import logging
+        from src.infrastructure.browser import BrowserManager
+        
         logger = logging.getLogger(__name__)
         logger.info(f"Lazy loading missing description for: {url}")
         try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                text = await page.evaluate("document.body.innerText")
-                await browser.close()
-                return re.sub(r'\s+', ' ', text).strip()[:10000]
+            manager = BrowserManager.get_instance()
+            text = await manager.fetch_text(url)
+            return re.sub(r'\s+', ' ', text).strip()[:10000]
         except Exception as e:
             logger.warning(f"JIT fetch failed for {url}: {e}")
             return "Description unavailable."

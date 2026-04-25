@@ -62,7 +62,7 @@ async def test_pdf_generator_creates_pdf(mock_ledger, mock_ai_data):
     # or we can mock playwright and test the entire thing including jinja rendering if we provide a test template.
     # Let's mock playwright and use a dummy template directory to see it fail.
     
-    with patch("src.core.pdf_generator.async_playwright") as mock_pw, \
+    with patch("src.core.pdf_generator.BrowserManager") as mock_manager_class, \
          patch("src.core.pdf_generator.Environment") as mock_env:
         
         # Setup mock Jinja2 environment
@@ -71,14 +71,10 @@ async def test_pdf_generator_creates_pdf(mock_ledger, mock_ai_data):
         mock_env_instance = mock_env.return_value
         mock_env_instance.get_template.return_value = mock_template
         
-        # Setup mock Playwright chain
-        mock_browser = AsyncMock()
-        mock_page = AsyncMock()
-        
-        mock_pw_context = AsyncMock()
-        mock_pw_context.chromium.launch.return_value = mock_browser
-        mock_browser.new_page.return_value = mock_page
-        mock_pw.return_value.__aenter__.return_value = mock_pw_context
+        # Setup mock BrowserManager
+        mock_manager = AsyncMock()
+        mock_manager.render_pdf.return_value = b"MOCK_PDF_BYTES"
+        mock_manager_class.get_instance.return_value = mock_manager
         
         generator = PDFGenerator(template_dir="dummy_dir")
         
@@ -93,12 +89,5 @@ async def test_pdf_generator_creates_pdf(mock_ledger, mock_ai_data):
         mock_env_instance.get_template.assert_called_with("resume.html")
         mock_template.render.assert_called_once()
         
-        # Check playwright page commands
-        mock_page.set_content.assert_called_with("<html><body>Mock PDF</body></html>")
-        mock_page.pdf.assert_called_once_with(
-            path=output_file,
-            format="Letter",
-            print_background=True,
-            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"}
-        )
-        mock_browser.close.assert_called_once()
+        # Check BrowserManager commands
+        mock_manager.render_pdf.assert_called_once_with("<html><body>Mock PDF</body></html>")
