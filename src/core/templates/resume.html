@@ -9,47 +9,52 @@
             font-family: 'Times New Roman', Times, serif;
             font-size: 10pt;
             color: #000;
-            line-height: 1.32;
-            padding: 36px 44px 32px 44px;
+            line-height: 1.25;
+            /* Approx. 0.4in margins to mirror the reference LaTeX layout */
+            padding: 28.8px;
         }
 
         /* ── Header ── */
         .name {
             text-align: center;
-            font-size: 20pt;
+            font-size: 24pt;
             font-weight: bold;
             color: #000;
-            letter-spacing: 0.02em;
-            margin-bottom: 3px;
+            margin-bottom: 4px;
         }
         .contact {
             text-align: center;
             font-size: 9.5pt;
             color: #111;
-            margin-bottom: 14px;
+            margin-bottom: 8px;
+            line-height: 1.2;
+            word-break: break-word;
+        }
+        .contact-row {
+            margin-bottom: 2px;
         }
 
-        /* ── Section headings — teal, uppercase, underlined ── */
+        /* ── Section headings — uppercase with divider line (LaTeX-like) ── */
         h2 {
             font-size: 10pt;
             font-weight: bold;
             text-transform: uppercase;
-            letter-spacing: 0.03em;
-            color: #0F4761;
-            border-bottom: 1.2px solid #0F4761;
-            padding-bottom: 1px;
-            margin-top: 11px;
-            margin-bottom: 5px;
+            letter-spacing: 0.01em;
+            color: #000;
+            border-bottom: 1px solid #000;
+            padding-bottom: 2px;
+            margin-top: 8px;
+            margin-bottom: 4px;
         }
 
         /* ── Summary ── */
         .summary { font-size: 10pt; margin-bottom: 4px; }
 
         /* ── Skills — single line, · separated ── */
-        .skills-line { font-size: 10pt; margin-bottom: 2px; }
+        .skills-line { font-size: 10pt; margin-bottom: 1px; }
 
         /* ── Entry blocks ── */
-        .entry { margin-bottom: 7px; }
+        .entry { margin-bottom: 5px; }
         .row {
             display: flex;
             justify-content: space-between;
@@ -62,12 +67,12 @@
         .entry-loc   { font-style: italic; font-size: 9.5pt; white-space: nowrap; padding-left: 8px; }
 
         ul {
-            margin: 2px 0 0 16px;
+            margin: 1px 0 0 14px;
             padding: 0;
         }
         li {
             font-size: 10pt;
-            margin-bottom: 1.5px;
+            margin-bottom: 1px;
         }
     </style>
 </head>
@@ -78,13 +83,16 @@
 
 <!-- ── CONTACT LINE ──────────────────────────────────────── -->
 <div class="contact">
-    {%- set parts = [] -%}
-    {%- if personal_info.phone    %}{%- set _ = parts.append(personal_info.phone)    %}{%- endif -%}
-    {%- if personal_info.email    %}{%- set _ = parts.append(personal_info.email)    %}{%- endif -%}
-    {%- if personal_info.linkedin %}{%- set _ = parts.append(personal_info.linkedin) %}{%- endif -%}
-    {%- if personal_info.github   %}{%- set _ = parts.append(personal_info.github)   %}{%- endif -%}
-    {%- if personal_info.website  %}{%- set _ = parts.append(personal_info.website)  %}{%- endif -%}
-    {{ parts | join(' &nbsp;|&nbsp; ') }}
+    {%- set row1 = [] -%}
+    {%- set row2 = [] -%}
+    {%- if personal_info.phone    %}{%- set _ = row1.append(personal_info.phone)    %}{%- endif -%}
+    {%- if personal_info.email    %}{%- set _ = row1.append(personal_info.email)    %}{%- endif -%}
+    {%- if personal_info.linkedin %}{%- set _ = row1.append(personal_info.linkedin) %}{%- endif -%}
+    {%- if personal_info.github   %}{%- set _ = row2.append(personal_info.github)   %}{%- endif -%}
+    {%- if personal_info.website  %}{%- set _ = row2.append(personal_info.website)  %}{%- endif -%}
+
+    {% if row1 %}<div class="contact-row contact-row-1">{{ row1 | join(' &nbsp;|&nbsp; ') }}</div>{% endif %}
+    {% if row2 %}<div class="contact-row contact-row-2">{{ row2 | join(' &nbsp;|&nbsp; ') }}</div>{% endif %}
 </div>
 
 <!-- ── TECHNICAL SKILLS ──────────────────────────────────── -->
