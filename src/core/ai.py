@@ -193,7 +193,15 @@ async def _gemini_call_with_retry(loop, client, model: str, contents, config):
                 )
             except ServerError as e:
                 last_exc = e
-                if e.status_code == 503 and attempt == 0:
+                # Google GenAI SDK exposes status differently depending on version
+                status = getattr(e, "code", getattr(e, "status_code", None))
+                if status is None and e.args:
+                    status = e.args[0]
+                
+                is_503 = (status == 503) or ("503" in str(e))
+                if is_503 and attempt == 0:
+                    import logging
+                    logging.getLogger(__name__).warning("Gemini 503 Overloaded. Retrying...")
                     await asyncio.sleep(delay)
                     continue
                 break   # non-503 or second attempt failed → next model
