@@ -172,6 +172,41 @@ def _parse_ledger_as_resume(ledger_path: str) -> str:
     return content.strip()
 
 
+def _recommended_course_hints(job: Job) -> list[str]:
+    """Return role-aware SFU coursework hints to use when education details are sparse."""
+    role = (job.role or "").lower()
+    desc = (job.job_description or "").lower()
+    text = f"{role} {desc}"
+
+    if any(k in text for k in ["backend", "api", "systems", "distributed", "database", "go", "grpc"]):
+        return [
+            "Computer Systems",
+            "Data Structures & Programming",
+            "Operating Systems",
+            "Database Systems",
+            "Discrete Mathematics",
+        ]
+    if any(k in text for k in ["frontend", "react", "typescript", "ui", "web"]):
+        return [
+            "Software Engineering",
+            "Human-Computer Interaction",
+            "Web Development",
+            "Data Structures & Programming",
+        ]
+    if any(k in text for k in ["machine learning", "ml", "ai", "data", "analytics", "nlp"]):
+        return [
+            "Linear Algebra",
+            "Probability and Statistics",
+            "Data Structures & Programming",
+            "Machine Learning",
+        ]
+    return [
+        "Data Structures & Programming",
+        "Computer Systems",
+        "Software Engineering",
+    ]
+
+
 async def _gemini_call_with_retry(loop, client, model: str, contents, config):
     """
     Call the Gemini API with model-cascade fallback on 503 (overloaded).
@@ -232,6 +267,7 @@ async def _gemini_call_with_retry(loop, client, model: str, contents, config):
                     continue
                 break   # non-503 or second attempt failed → next model
     raise last_exc
+
 
 
 class AITailor:
@@ -387,6 +423,9 @@ class AITailor:
             except RuntimeError:
                 resume_text = "No resume facts available."
 
+        course_hints = _recommended_course_hints(job)
+        course_hints_str = "\n".join(f"- {c}" for c in course_hints)
+
         # 2. System prompt — strict hallucination guard + XYZ format + keyword injection
         system_prompt = (
             "You are an elite Resume Tailor and ATS Optimizer for software engineering roles.\n\n"
@@ -467,6 +506,9 @@ class AITailor:
             "start_date/end_date/location exactly as written when present. Do NOT normalize degree wording and do "
             "NOT invent GPA, awards, or certifications. If no education entries exist in context, output an empty "
             "array for this field.\n"
+            "When education bullets are missing/sparse, you may choose 1-3 items from the approved hint list below "
+            "to produce realistic education bullets aligned to the job.\n"
+            f"Approved SFU coursework hints:\n{course_hints_str}\n"
             "5. Never output placeholder bullets like '[X]'/'[Y]'/'[Z]'. Every bullet must be concrete and factual.\n"
             "6. Do NOT invent project names, tech stacks, dates, or metrics not present in the context.\n\n"
             f"CANDIDATE'S CONTEXT:\n{resume_text}"
