@@ -158,6 +158,16 @@ def _normalize_education_institutions(result: TailoredApplication) -> None:
 
     normalize_map = {
         "sfu": "Simon Fraser University",
+        "ubc": "The University of British Columbia",
+        "uvic": "University of Victoria",
+        "bcit": "British Columbia Institute of Technology",
+        "langara": "Langara College",
+        "uoft": "University of Toronto",
+        "u of t": "University of Toronto",
+        "uottawa": "University of Ottawa",
+        "uofc": "University of Calgary",
+        "ualberta": "University of Alberta",
+        "sait": "Southern Alberta Institute of Technology",
     }
 
     for edu in result.tailored_education:

@@ -289,6 +289,52 @@ async def test_education_institution_abbreviation_is_expanded(tmp_path):
     assert result.tailored_education[0].institution == "Simon Fraser University"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("UBC", "The University of British Columbia"),
+        ("UVic", "University of Victoria"),
+        ("BCIT", "British Columbia Institute of Technology"),
+        ("Langara", "Langara College"),
+    ],
+)
+async def test_education_institution_abbreviations_expand_common_canadian_schools(tmp_path, raw, expected):
+    job = Job(
+        id="b5",
+        company="BackendCo",
+        role="Backend Software Engineer",
+        status=JobStatus.DISCOVERED,
+        job_description="Design and build backend services.",
+        url="https://example.com/backend5",
+    )
+    tailor = _make_tailor(tmp_path)
+
+    app = TailoredApplication(
+        job_id=job.id,
+        skills_to_highlight={"Languages": ["Python"]},
+        tailored_projects=[],
+        tailored_experience=[],
+        tailored_education=[
+            {
+                "degree": "Computer Science",
+                "institution": raw,
+                "start_date": "Sep 2022",
+                "end_date": "Present",
+                "location": "",
+                "bullets": ["Relevant Coursework: Data Structures & Programming."],
+            }
+        ],
+        q_and_a_responses={},
+    )
+
+    with patch.object(tailor, "_call_llm", new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = app
+        result = await tailor.tailor_application(job)
+
+    assert result.tailored_education[0].institution == expected
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Gap 2 — _parse_ledger_as_resume must always include GitHub Projects section
 # ──────────────────────────────────────────────────────────────────────────────
