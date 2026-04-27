@@ -209,6 +209,86 @@ async def test_system_prompt_contains_sfu_course_hints_for_backend_job(tmp_path)
     assert "Computer Systems" in system
 
 
+@pytest.mark.asyncio
+async def test_education_generic_bullet_is_replaced_with_coursework_hint(tmp_path):
+    job = Job(
+        id="b3",
+        company="BackendCo",
+        role="Backend Software Engineer",
+        status=JobStatus.DISCOVERED,
+        job_description="Build distributed backend APIs and database services.",
+        url="https://example.com/backend3",
+    )
+    tailor = _make_tailor(tmp_path)
+
+    weak = TailoredApplication(
+        job_id=job.id,
+        skills_to_highlight={"Languages": ["Python"]},
+        tailored_projects=[],
+        tailored_experience=[],
+        tailored_education=[
+            {
+                "degree": "Computer Science",
+                "institution": "SFU",
+                "start_date": "Sep 2022",
+                "end_date": "Present",
+                "location": "",
+                "bullets": [
+                    "Studied core computer science principles including data structures, algorithms, and systems programming.",
+                ],
+            }
+        ],
+        q_and_a_responses={},
+    )
+
+    with patch.object(tailor, "_call_llm", new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = weak
+        result = await tailor.tailor_application(job)
+
+    assert result.tailored_education
+    assert result.tailored_education[0].bullets
+    first = result.tailored_education[0].bullets[0]
+    assert first.startswith("Relevant Coursework:")
+    assert "Computer Systems" in first
+
+
+@pytest.mark.asyncio
+async def test_education_institution_abbreviation_is_expanded(tmp_path):
+    job = Job(
+        id="b4",
+        company="BackendCo",
+        role="Backend Software Engineer",
+        status=JobStatus.DISCOVERED,
+        job_description="Design and build backend services.",
+        url="https://example.com/backend4",
+    )
+    tailor = _make_tailor(tmp_path)
+
+    app = TailoredApplication(
+        job_id=job.id,
+        skills_to_highlight={"Languages": ["Python"]},
+        tailored_projects=[],
+        tailored_experience=[],
+        tailored_education=[
+            {
+                "degree": "Computer Science",
+                "institution": "SFU",
+                "start_date": "Sep 2022",
+                "end_date": "Present",
+                "location": "",
+                "bullets": ["Relevant Coursework: Computer Systems."],
+            }
+        ],
+        q_and_a_responses={},
+    )
+
+    with patch.object(tailor, "_call_llm", new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = app
+        result = await tailor.tailor_application(job)
+
+    assert result.tailored_education[0].institution == "Simon Fraser University"
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Gap 2 — _parse_ledger_as_resume must always include GitHub Projects section
 # ──────────────────────────────────────────────────────────────────────────────

@@ -115,6 +115,60 @@ def _has_placeholder_bullets(result: TailoredApplication) -> bool:
     return False
 
 
+def _is_generic_education_bullet(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    generic_phrases = [
+        "studied core computer science principles",
+        "including data structures, algorithms",
+        "coursework relevant to",
+        "strong foundation in",
+        "developed strong",
+    ]
+    if any(p in t for p in generic_phrases):
+        return True
+    # Very short, generic bullets are usually low-signal filler.
+    return len(t.split()) < 8
+
+
+def _hydrate_education_bullets(result: TailoredApplication, course_hints: list[str]) -> None:
+    """Ensure education bullets are concrete and template-quality.
+
+    If bullets are empty or all generic, replace with a deterministic
+    coursework line based on role-aware approved hints.
+    """
+    if not result.tailored_education:
+        return
+
+    hints = [h.strip() for h in (course_hints or []) if h and h.strip()]
+    if not hints:
+        return
+
+    for edu in result.tailored_education:
+        bullets = [b.strip() for b in (edu.bullets or []) if b and b.strip()]
+        if not bullets or all(_is_generic_education_bullet(b) for b in bullets):
+            edu.bullets = [f"Relevant Coursework: {', '.join(hints[:4])}."]
+
+
+def _normalize_education_institutions(result: TailoredApplication) -> None:
+    """Expand common institution abbreviations for cleaner resume rendering."""
+    if not result.tailored_education:
+        return
+
+    normalize_map = {
+        "sfu": "Simon Fraser University",
+    }
+
+    for edu in result.tailored_education:
+        inst = (edu.institution or "").strip()
+        if not inst:
+            continue
+        normalized = normalize_map.get(inst.lower())
+        if normalized:
+            edu.institution = normalized
+
+
 def _load_dotenv():
     """Minimal .env loader — no dependency on python-dotenv."""
     env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
@@ -578,6 +632,10 @@ class AITailor:
         result.skills_to_highlight = _deduplicate_languages(result.skills_to_highlight)
         # Remove false positives from missing_skills (skills the candidate already has)
         result.missing_skills = _filter_missing_skills(result.missing_skills, resume_text)
+        # Expand institution abbreviations (e.g. SFU) for cleaner Education output.
+        _normalize_education_institutions(result)
+        # Upgrade weak education bullets to concrete coursework when needed.
+        _hydrate_education_bullets(result, course_hints)
         return result
 
     async def _call_llm_text(self, prompt: str) -> str:
