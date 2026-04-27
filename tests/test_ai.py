@@ -2,7 +2,7 @@ import pytest
 import os
 from unittest.mock import patch, AsyncMock, MagicMock
 from src.core.models import Job, JobStatus, TailoredApplication, TailoredProject, TailoredExperience
-from src.core.ai import AITailor, _merge_skill_categories, _deduplicate_languages, _filter_missing_skills
+from src.core.ai import AITailor, _merge_skill_categories, _deduplicate_languages, _filter_missing_skills, _recommended_course_hints
 from src.core.ledger import LedgerManager
 
 @pytest.fixture
@@ -177,6 +177,36 @@ async def test_user_prompt_uses_keyword_overlap_for_project_scoring(tmp_path, sa
         "User prompt must reference keyword-overlap for project scoring"
     assert "Frontend/TypeScript/Vue JD → exclude Go/distributed/systems repos" not in user
     assert "Backend/Go/systems JD → exclude pure frontend repos" not in user
+
+
+def test_recommended_course_hints_for_backend_role():
+    job = Job(
+        id="b1",
+        company="BackendCo",
+        role="Backend Software Engineer",
+        status=JobStatus.DISCOVERED,
+        job_description="Build APIs, distributed systems, and database services.",
+        url="https://example.com/backend",
+    )
+    hints = _recommended_course_hints(job)
+    assert any("Computer Systems" in h for h in hints)
+    assert any("Data Structures" in h for h in hints)
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_contains_sfu_course_hints_for_backend_job(tmp_path):
+    job = Job(
+        id="b2",
+        company="BackendCo",
+        role="Backend Software Engineer",
+        status=JobStatus.DISCOVERED,
+        job_description="Design APIs and distributed backend services.",
+        url="https://example.com/backend2",
+    )
+    tailor = _make_tailor(tmp_path)
+    system = await _capture_system_prompt(tailor, job)
+    assert "Approved SFU coursework hints" in system
+    assert "Computer Systems" in system
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -1070,62 +1070,61 @@ if nav == "Job Feed":
                                 "Make sure GEMINI_API_KEY (or OPENAI_API_KEY) is set in your .env file."
                             )
                             st.rerun()
-                        else:
-                            with st.spinner(f"Tailoring resume for {job.company}… (may retry if Gemini is busy)"):
-                                try:
-                                    result: TailoredApplication = run_async(tailor.tailor_application(job))
-                                    # Load ledger from DB for this user; fall back to file if empty
-                                    _db_ledger_content = run_async(repo.get_ledger(_USER_ID))
-                                    if _db_ledger_content:
-                                        import tempfile as _pdf_tmp
-                                        _ltmp = _pdf_tmp.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
-                                        _ltmp.write(_db_ledger_content)
-                                        _ltmp.close()
-                                        _structured = _parse_ledger_for_pdf(_ltmp.name)
-                                        import os as _os2; _os2.unlink(_ltmp.name)
-                                    else:
-                                        _fallback_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-                                        _structured = _parse_ledger_for_pdf(_fallback_path)
-                                    # Always read latest form values — avoids "Your Name" when
-                                    # auto-fill populated the keys but Save Profile wasn't clicked
-                                    _pi = st.session_state.profile
-                                    user_ledger = {
-                                        "personal_info": {
-                                            "name":     st.session_state.get("_pf_name")     or _pi.name     or "",
-                                            "email":    st.session_state.get("_pf_email")    or _pi.email    or "",
-                                            "phone":    st.session_state.get("_pf_phone")    or _pi.phone    or "",
-                                            "linkedin": st.session_state.get("_pf_linkedin") or _pi.linkedin or "",
-                                            "github":   st.session_state.get("_pf_github")   or _pi.github   or "",
-                                            "website":  st.session_state.get("_pf_website")  or "",
-                                        },
-                                        # Merge: profile (manually entered) + ledger-parsed (uploaded resume / website)
-                                        "education":  _merge_structured(_pi.education, _structured["education"]),
-                                        "experience": _merge_structured(_pi.experience, _structured["experience"]),
-                                    }
-                                    # Sanitize company + role for a readable filename
-                                    import re as _re
-                                    _safe = lambda s: _re.sub(r'[^\w\s-]', '', s).strip().replace(' ', '_')
-                                    _fname = f"{_safe(job.company)}_{_safe(job.role)}_Resume.pdf"
-                                    output_path = os.path.join("output", _fname)
-                                    os.makedirs("output", exist_ok=True)
-                                    run_async(pdf_gen.generate_resume_pdf(user_ledger, result, output_path=output_path))
-                                    with open(output_path, "rb") as fh:
-                                        pdf_bytes = fh.read()
-                                    st.session_state[f"pdf_{job.id}"] = pdf_bytes
-                                    st.session_state[f"qa_{job.id}"]  = result.q_and_a_responses
-                                    st.session_state[f"gaps_{job.id}"] = result.missing_skills
-                                    st.session_state[f"autodownload_{job.id}"] = True
-                                    # Persist tailored result to DB so it survives page refresh
-                                    run_async(repo.save_tailored_result(
-                                        job.id, result.model_dump_json(), pdf_bytes, user_id=_USER_ID
-                                    ))
-                                    run_async(repo.update_status(job.id, JobStatus.PENDING_REVIEW, user_id=_USER_ID))
-                                    st.toast(f"Resume for {job.company} is ready!", icon="✅")
-                                    st.rerun()
-                                except Exception as e:
-                                    import traceback
-                                    st.session_state[err_key] = f"Tailoring failed: {e}\n\n{traceback.format_exc()}"
-                                    st.rerun()
+                        _db_ledger_content = run_async(repo.get_ledger(_USER_ID))
+                        with st.spinner(f"Tailoring resume for {job.company}… (may retry if Gemini is busy)"):
+                            try:
+                                result: TailoredApplication = run_async(tailor.tailor_application(job))
+                                # Load ledger from DB for this user; fall back to file if empty
+                                if _db_ledger_content:
+                                    import tempfile as _pdf_tmp
+                                    _ltmp = _pdf_tmp.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+                                    _ltmp.write(_db_ledger_content)
+                                    _ltmp.close()
+                                    _structured = _parse_ledger_for_pdf(_ltmp.name)
+                                    import os as _os2; _os2.unlink(_ltmp.name)
+                                else:
+                                    _fallback_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
+                                    _structured = _parse_ledger_for_pdf(_fallback_path)
+                                # Always read latest form values — avoids "Your Name" when
+                                # auto-fill populated the keys but Save Profile wasn't clicked
+                                _pi = st.session_state.profile
+                                user_ledger = {
+                                    "personal_info": {
+                                        "name":     st.session_state.get("_pf_name")     or _pi.name     or "",
+                                        "email":    st.session_state.get("_pf_email")    or _pi.email    or "",
+                                        "phone":    st.session_state.get("_pf_phone")    or _pi.phone    or "",
+                                        "linkedin": st.session_state.get("_pf_linkedin") or _pi.linkedin or "",
+                                        "github":   st.session_state.get("_pf_github")   or _pi.github   or "",
+                                        "website":  st.session_state.get("_pf_website")  or "",
+                                    },
+                                    # Merge: profile (manually entered) + ledger-parsed (uploaded resume / website)
+                                    "education":  _merge_structured(_pi.education, _structured["education"]),
+                                    "experience": _merge_structured(_pi.experience, _structured["experience"]),
+                                }
+                                # Sanitize company + role for a readable filename
+                                import re as _re
+                                _safe = lambda s: _re.sub(r'[^\w\s-]', '', s).strip().replace(' ', '_')
+                                _fname = f"{_safe(job.company)}_{_safe(job.role)}_Resume.pdf"
+                                output_path = os.path.join("output", _fname)
+                                os.makedirs("output", exist_ok=True)
+                                run_async(pdf_gen.generate_resume_pdf(user_ledger, result, output_path=output_path))
+                                with open(output_path, "rb") as fh:
+                                    pdf_bytes = fh.read()
+                                st.session_state[f"pdf_{job.id}"] = pdf_bytes
+                                st.session_state[f"qa_{job.id}"]  = result.q_and_a_responses
+                                st.session_state[f"gaps_{job.id}"] = result.missing_skills
+                                st.session_state[f"autodownload_{job.id}"] = True
+                                # Persist tailored result to DB so it survives page refresh
+                                run_async(repo.save_tailored_result(
+                                    job.id, result.model_dump_json(), pdf_bytes, user_id=_USER_ID
+                                ))
+                                run_async(repo.update_status(job.id, JobStatus.PENDING_REVIEW, user_id=_USER_ID))
+                                st.toast(f"Resume for {job.company} is ready!", icon="✅")
+                                st.rerun()
+                            except Exception as e:
+                                import traceback
+                                st.session_state[err_key] = f"Tailoring failed: {e}\n\n{traceback.format_exc()}"
+                                st.rerun()
 
                     # Show download button if PDF is already generated for this job
                     # Load from DB if not in session state (page was refreshed)
