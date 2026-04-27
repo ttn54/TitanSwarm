@@ -390,7 +390,7 @@ def test_parse_ledger_returns_github_section_when_after_resume_marker(tmp_path):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Bullet trim: projects with <= 2 keyword matches must be trimmed to 2 bullets
+# Bullet trim: projects should follow rank-based caps (4, 3, 2)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _make_project(title: str, overlap: int, n_bullets: int) -> TailoredProject:
@@ -413,8 +413,8 @@ def _blank_result_with_projects(job_id: str, projects: list) -> TailoredApplicat
 
 
 @pytest.mark.asyncio
-async def test_non_top_low_overlap_project_trimmed_to_two_bullets(tmp_path, sample_job):
-    """Non-top projects (rank 2nd or 3rd) with keyword_overlap_count <= 2 must be trimmed to 2 bullets."""
+async def test_non_top_low_overlap_project_trimmed_to_three_bullets(tmp_path, sample_job):
+    """Second-ranked project should be capped to 3 bullets."""
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
@@ -422,8 +422,8 @@ async def test_non_top_low_overlap_project_trimmed_to_two_bullets(tmp_path, samp
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
-    high = _make_project("HighMatch", overlap=5, n_bullets=4)
-    low  = _make_project("LowMatch",  overlap=1, n_bullets=4)
+    high = _make_project("HighMatch", overlap=5, n_bullets=6)
+    low  = _make_project("LowMatch",  overlap=1, n_bullets=6)
     mocked_result = _blank_result_with_projects(sample_job.id, [high, low])
 
     with patch.object(tailor, "_call_llm", return_value=mocked_result):
@@ -432,14 +432,14 @@ async def test_non_top_low_overlap_project_trimmed_to_two_bullets(tmp_path, samp
     # high comes first (sorted by overlap desc), low is second → trimmed
     assert result.tailored_projects[0].title == "HighMatch"
     assert result.tailored_projects[1].title == "LowMatch"
-    assert len(result.tailored_projects[1].bullets) == 2, (
-        "Non-top project with overlap=1 must be trimmed to 2 bullets"
+    assert len(result.tailored_projects[1].bullets) == 3, (
+        "Second-ranked project must be capped to 3 bullets"
     )
 
 
 @pytest.mark.asyncio
-async def test_top_project_keeps_all_bullets_regardless_of_overlap(tmp_path, sample_job):
-    """The top-ranked project must always keep all 4 bullets, even when overlap is low."""
+async def test_third_ranked_project_trimmed_to_two_bullets_even_if_high_overlap(tmp_path, sample_job):
+    """Third-ranked project should be capped to 2 bullets regardless of overlap."""
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
@@ -447,17 +447,41 @@ async def test_top_project_keeps_all_bullets_regardless_of_overlap(tmp_path, sam
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
-    low_a = _make_project("LowA", overlap=2, n_bullets=4)
-    low_b = _make_project("LowB", overlap=1, n_bullets=4)
+    p1 = _make_project("P1", overlap=7, n_bullets=6)
+    p2 = _make_project("P2", overlap=6, n_bullets=6)
+    p3 = _make_project("P3", overlap=5, n_bullets=6)
+    mocked_result = _blank_result_with_projects(sample_job.id, [p1, p2, p3])
+
+    with patch.object(tailor, "_call_llm", return_value=mocked_result):
+        result = await tailor.tailor_application(sample_job)
+
+    assert result.tailored_projects[2].title == "P3"
+    assert len(result.tailored_projects[2].bullets) == 2, (
+        "Third-ranked project must be capped to 2 bullets"
+    )
+
+
+@pytest.mark.asyncio
+async def test_top_project_keeps_all_bullets_regardless_of_overlap(tmp_path, sample_job):
+    """The top-ranked project must be capped to 4 bullets (not more), even when overlap is low."""
+    with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
+        mock_ledger = MagicMock(spec=LedgerManager)
+        mock_ledger.ledger_path = str(tmp_path / "ledger.md")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        with patch("google.genai.Client"):
+            tailor = AITailor(ledger_manager=mock_ledger)
+
+    low_a = _make_project("LowA", overlap=2, n_bullets=6)
+    low_b = _make_project("LowB", overlap=1, n_bullets=6)
     mocked_result = _blank_result_with_projects(sample_job.id, [low_a, low_b])
 
     with patch.object(tailor, "_call_llm", return_value=mocked_result):
         result = await tailor.tailor_application(sample_job)
 
-    # LowA has higher overlap → sorted first → keeps all 4 bullets
+    # LowA has higher overlap -> sorted first -> capped to 4 bullets
     assert result.tailored_projects[0].title == "LowA"
     assert len(result.tailored_projects[0].bullets) == 4, (
-        "Top project must always keep all 4 bullets regardless of overlap count"
+        "Top project must be capped to 4 bullets"
     )
 
 
