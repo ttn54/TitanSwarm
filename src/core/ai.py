@@ -558,7 +558,8 @@ class AITailor:
             "  STEP C: Rank ALL candidate projects by overlap count. Select the top 3 only.\n"
             "  For the 'tech' field per project: list ONLY the 4-5 techs from that project "
             "with the highest overlap with THIS JD's keywords — not the full stack.\n"
-            "  BULLET COUNT RULE: give 4 bullets to projects with keyword_overlap_count >= 3; give 2 bullets to projects with keyword_overlap_count <= 2.\n"
+            "  BULLET COUNT RULE (after ranking by overlap): project #1 must have 4 bullets, project #2 must have 3 bullets,"
+            " and project #3 must have 2 bullets.\n"
             "3. For tailored_experience: if the CANDIDATE'S CONTEXT contains a 'WORK EXPERIENCE' section, "
             "populate this array with each role. For each entry rewrite the bullets in XYZ format "
             "('Accomplished X, as measured by Y, by doing Z') and naturally inject the top 3-5 exact JD keywords "
@@ -600,7 +601,7 @@ class AITailor:
             f"Projects with zero keyword overlap must be excluded entirely. "
             f"For the 'tech' field per project: list only the 4-5 techs with the highest overlap with THIS JD's keywords. "
             f"Set keyword_overlap_count on each selected project to the number of JD keywords matched. "
-            f"Give 4 bullets to projects with keyword_overlap_count >= 3; give only 2 bullets to projects with keyword_overlap_count <= 2. "
+            f"After ranking projects by overlap score, enforce bullet counts by rank: project #1 = 4 bullets, project #2 = 3 bullets, project #3 = 2 bullets. "
             f"Preserve project name as title exactly.\n"
             f"4. For tailored_experience: look for a 'WORK EXPERIENCE' section in the candidate's context above. "
             f"If found, include each role with XYZ-format bullets injecting JD keywords truthfully. "
@@ -629,10 +630,13 @@ class AITailor:
             key=lambda p: p.keyword_overlap_count,
             reverse=True,
         )
-        # Code-enforced bullet trim: top project always keeps all bullets;
-        # 2nd and 3rd projects with low overlap are trimmed to 2 bullets
+        # Code-enforced rank caps keep resume length predictable: 4, 3, 2.
         for i, proj in enumerate(result.tailored_projects):
-            if i > 0 and proj.keyword_overlap_count <= 2:
+            if i == 0:
+                proj.bullets = proj.bullets[:4]
+            elif i == 1:
+                proj.bullets = proj.bullets[:3]
+            else:
                 proj.bullets = proj.bullets[:2]
         # Hard cap: never show more than 4 skill categories on the resume
         result.skills_to_highlight = _merge_skill_categories(
