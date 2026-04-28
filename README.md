@@ -1,6 +1,6 @@
 # TitanSwarm
 
-**Live:** [http://137.184.161.71:8501](http://137.184.161.71:8501)
+**Live:** [https://smartresume.dev](https://smartresume.dev)
 
 An autonomous, agentic job application co-pilot. TitanSwarm automates the discovery, analysis, and tailoring of job applications — delivering a ready-to-submit package to the user while deliberately keeping a human in the loop for the final submission step.
 
@@ -177,7 +177,7 @@ tests/                 # Full test suite (pytest-asyncio)
 
 TitanSwarm ships with a Docker Compose setup for one-command production deployment.
 
-**Live instance:** [http://137.184.161.71:8501](http://137.184.161.71:8501)
+**Live instance:** [https://smartresume.dev](https://smartresume.dev)
 
 ### Deploy with Docker
 
@@ -200,6 +200,29 @@ This starts two services:
 | `titanswarm_daemon` | Background job scraper |
 
 Data is persisted across restarts via three Docker volumes: `titanswarm_db`, `titanswarm_data`, `titanswarm_output`.
+
+### Securing with HTTPS (Nginx + Let's Encrypt)
+To prevent modern browsers from blocking the native PDF auto-download mechanism (the "Keep or Discard" warning), the app must be served over HTTPS.
+
+1. **Point your domain** (e.g. `smartresume.dev`) to your server IP.
+2. **Install Nginx & Certbot**: `sudo apt install nginx certbot python3-certbot-nginx`
+3. **Configure Nginx** to act as a reverse proxy for Streamlit's WebSocket connection:
+   ```nginx
+   server {
+       listen 80;
+       server_name smartresume.dev www.smartresume.dev;
+       location / {
+           proxy_pass http://127.0.0.1:8501;
+           proxy_http_version 1.1;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header Host $host;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection "upgrade";
+           proxy_read_timeout 86400;
+       }
+   }
+   ```
+4. **Issue SSL Certificate**: `sudo certbot --nginx -d smartresume.dev -d www.smartresume.dev`
 
 ### Continuous Deployment (GitHub Actions)
 
