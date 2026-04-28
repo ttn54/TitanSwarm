@@ -1259,7 +1259,7 @@ if nav == "Job Feed":
                             key=f"cl_display_{job.id}",
                         )
                     if st.button("✅ Mark as Applied", key=f"mark_{job.id}"):
-                        run_async(repo.update_status(job.id, JobStatus.SUBMITTED))
+                        run_async(repo.update_status(job.id, JobStatus.SUBMITTED, user_id=_USER_ID))
                         st.toast(f"{job.company} marked as submitted!", icon="🎯")
                         st.rerun()
 
@@ -1376,7 +1376,7 @@ elif nav == "My Applications":
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
     # ── Submitted list with download ──
-    submitted_jobs = run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED))
+    submitted_jobs = run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID))
     if submitted_jobs:
         st.markdown("### Applied — Download Resumes")
         for job in submitted_jobs:
@@ -1393,7 +1393,7 @@ elif nav == "My Applications":
             with rc2:
                 # Serve cached PDF — load from DB if not in session state
                 if f"pdf_{job.id}" not in st.session_state:
-                    _db_r = run_async(repo.get_tailored_result(job.id))
+                    _db_r = run_async(repo.get_tailored_result(job.id, user_id=_USER_ID))
                     if _db_r:
                         st.session_state[f"pdf_{job.id}"] = _db_r[1]
                 _cached = st.session_state.get(f"pdf_{job.id}")
@@ -1405,7 +1405,7 @@ elif nav == "My Applications":
                     st.button("📄 PDF", key=f"sub_dl_{job.id}", use_container_width=True, disabled=True)
             with rc3:
                 if st.button("✗ Reject", key=f"rej_{job.id}", use_container_width=True):
-                    run_async(repo.update_status(job.id, JobStatus.REJECTED))
+                    run_async(repo.update_status(job.id, JobStatus.REJECTED, user_id=_USER_ID))
                     st.rerun()
 
 

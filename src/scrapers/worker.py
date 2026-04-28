@@ -1,5 +1,6 @@
 from typing import Any
 import asyncio
+import hashlib
 import logging
 import re
 import pandas as pd
@@ -164,10 +165,17 @@ class SourcingEngine:
         saved_count = 0
         all_found_ids: list[str] = []
         for _, row in jobs_df.iterrows():
-            job_id = str(row.get("id"))
-            if job_id == "None":
+            jobspy_id = str(row.get("id"))
+            if jobspy_id == "None":
                 logger.warning("Skipping job with null ID from scraper.")
                 continue
+
+            # Multi-tenant isolation: hash the scraper ID with user_id so every
+            # user gets their own distinct job record in the database.
+            # This prevents User B from stealing User A's job during upserts,
+            # as the original primary key constraint is strictly on the ID column.
+            job_id_raw = f"{user_id}:{jobspy_id}"
+            job_id = hashlib.md5(job_id_raw.encode('utf-8')).hexdigest()
 
             all_found_ids.append(job_id)
 
