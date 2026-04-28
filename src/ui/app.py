@@ -569,13 +569,13 @@ def _set_session_cookie(uid: int, username: str) -> None:
     value = _make_cookie_value(uid, username)
     expiry = (datetime.now() + timedelta(days=_COOKIE_DAYS)).strftime("%a, %d %b %Y %H:%M:%S GMT")
     _components.html(
-        f'<script>document.cookie="{_COOKIE_NAME}={value}; path=/; expires={expiry}; SameSite=Lax";</script>',
+        f'<script>document.cookie="{_COOKIE_NAME}={value}; path=/; expires={expiry}; SameSite=Lax"; window.parent.location.reload();</script>',
         height=0,
     )
 
 def _delete_session_cookie() -> None:
     _components.html(
-        f'<script>document.cookie="{_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";</script>',
+        f'<script>document.cookie="{_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax"; window.parent.location.reload();</script>',
         height=0,
     )
 
@@ -655,8 +655,7 @@ def _render_auth_page():
                     st.session_state["user_id"] = uid
                     st.session_state["username"] = username
                     _set_session_cookie(uid, username)
-                    time.sleep(0.3)
-                    st.rerun()
+                    st.stop()
 
     with tab_register:
         with st.form("register_form"):
@@ -678,8 +677,7 @@ def _render_auth_page():
                     st.session_state["username"] = new_username
                     _set_session_cookie(uid, new_username)
                     st.success(f"Account created! Welcome, {new_username}.")
-                    time.sleep(0.3)
-                    st.rerun()
+                    st.stop()
                 except ValueError as e:
                     st.error(str(e))
 
@@ -859,8 +857,7 @@ with st.sidebar:
         _delete_session_cookie()
         st.session_state.clear()
         st.session_state["_force_logout"] = True
-        time.sleep(0.3)
-        st.rerun()
+        st.stop()
 
 # Track which page we're on so Preferences can detect "just arrived" state
 st.session_state["_on_prefs_page"] = (nav == "Preferences")
