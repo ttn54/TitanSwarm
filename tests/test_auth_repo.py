@@ -128,6 +128,48 @@ async def test_jobs_isolated_between_users(repo):
 
 
 @pytest.mark.asyncio
+async def test_same_external_job_id_can_exist_for_two_users(repo):
+    """The same scraped job ID must not overwrite another user's record."""
+    from src.core.models import Job, JobStatus
+
+    uid_a = await repo.create_user("alice", "pw")
+    uid_b = await repo.create_user("bob", "pw")
+
+    shared_id = "job-42"
+    alice_job = Job(
+        id=shared_id,
+        company="Acme",
+        role="SWE",
+        status=JobStatus.DISCOVERED,
+        job_description="Alice's version",
+        required_skills=[],
+        custom_questions=[],
+        url="https://acme.com/job-42",
+    )
+    bob_job = Job(
+        id=shared_id,
+        company="Acme",
+        role="SWE",
+        status=JobStatus.SUBMITTED,
+        job_description="Bob's version",
+        required_skills=[],
+        custom_questions=[],
+        url="https://acme.com/job-42",
+    )
+
+    assert await repo.save_job(alice_job, user_id=uid_a)
+    assert await repo.save_job(bob_job, user_id=uid_b)
+
+    alice_jobs = await repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=uid_a)
+    bob_jobs = await repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=uid_b)
+
+    assert len(alice_jobs) == 1
+    assert alice_jobs[0].job_description == "Alice's version"
+    assert len(bob_jobs) == 1
+    assert bob_jobs[0].job_description == "Bob's version"
+
+
+@pytest.mark.asyncio
 async def test_default_user_id_1_backward_compatible(repo):
     """Calls without user_id must default to user_id=1 (backward compat for existing data)."""
     from src.core.models import Job, JobStatus

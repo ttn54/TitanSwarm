@@ -13,8 +13,3 @@ port = 8501
 headless = true
 
 [ui]
-
-[server]
-
-enableCORS = false
-enableXsrfProtection = false
