@@ -7,7 +7,14 @@ font = "sans serif"
 
 [server]
 runOnSave = true
+enableCORS = false
+enableXsrfProtection = false
 port = 8501
 headless = true
 
 [ui]
+
+[server]
+
+enableCORS = false
+enableXsrfProtection = false
