@@ -3,8 +3,9 @@ import json
 import logging
 from typing import List, Optional, Tuple
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy import String, Text, LargeBinary, Integer, Float, Enum as SQLEnum, select, func
+from sqlalchemy import String, Text, LargeBinary, Integer, Float, Enum as SQLEnum, select, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.schema import CreateTable
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 
@@ -36,6 +37,7 @@ class JobModel(Base):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1, index=True)
     company: Mapped[str] = mapped_column(String, index=True)
     role: Mapped[str] = mapped_column(String, index=True)
     status: Mapped[JobStatus] = mapped_column(SQLEnum(JobStatus), index=True)
@@ -45,7 +47,6 @@ class JobModel(Base):
     custom_questions: Mapped[str] = mapped_column(String, default="[]")
     location: Mapped[str] = mapped_column(String, default="")
     date_posted: Mapped[str] = mapped_column(String, default="")
-    user_id: Mapped[int] = mapped_column(Integer, default=1, index=True)
     salary_min: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     salary_max: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     salary_currency: Mapped[str] = mapped_column(String, default="")
@@ -109,10 +110,10 @@ class TailoredResultModel(Base):
     __tablename__ = "tailored_results"
 
     job_id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     ai_json: Mapped[str] = mapped_column(Text)
     pdf_bytes: Mapped[bytes] = mapped_column(LargeBinary)
     cover_letter_text: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
-    user_id: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class PostgresRepository(JobRepository):
@@ -140,6 +141,7 @@ class PostgresRepository(JobRepository):
         # SQLite does not re-add columns on create_all for existing tables,
         # so we manually add new columns with a PRAGMA check.
         await self._ensure_columns()
+        await self._ensure_multi_tenant_keys()
 
     async def _ensure_columns(self):
         """Adds columns that may be missing from an older DB schema."""
@@ -174,6 +176,42 @@ class PostgresRepository(JobRepository):
                         logger.info(f"Migration: added column '{col}' to '{table}'")
                 except Exception:
                     pass  # table doesn't exist yet — create_all will handle it
+
+    async def _ensure_multi_tenant_keys(self):
+        """Rebuild old SQLite tables so jobs/results are keyed by user_id too."""
+        if self.is_postgres:
+            return
+
+        async with self.engine.begin() as conn:
+            for table_name, table_model, expected_pk in (
+                ("jobs", JobModel.__table__, ["id", "user_id"]),
+                ("tailored_results", TailoredResultModel.__table__, ["job_id", "user_id"]),
+            ):
+                table_info = await conn.run_sync(
+                    lambda sync_conn, t=table_name: sync_conn.execute(
+                        text(f"PRAGMA table_info({t})")
+                    ).fetchall()
+                )
+                if not table_info:
+                    continue
+
+                current_pk = [row[1] for row in sorted(table_info, key=lambda row: row[5]) if row[5]]
+                if current_pk == expected_pk:
+                    continue
+
+                legacy_name = f"{table_name}_legacy"
+                await conn.execute(text(f"ALTER TABLE {table_name} RENAME TO {legacy_name}"))
+                await conn.run_sync(Base.metadata.create_all)
+
+                columns = [column.name for column in table_model.columns]
+                column_sql = ", ".join(columns)
+                await conn.execute(
+                    text(
+                        f"INSERT INTO {table_name} ({column_sql}) "
+                        f"SELECT {column_sql} FROM {legacy_name}"
+                    )
+                )
+                await conn.execute(text(f"DROP TABLE {legacy_name}"))
 
     async def close(self):
         """Disposes the engine connection pool."""
@@ -279,13 +317,13 @@ class PostgresRepository(JobRepository):
             if self.is_postgres:
                 stmt = postgres_insert(JobModel).values(**stmt_params)
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=['id'],
+                    index_elements=['id', 'user_id'],
                     set_={k: v for k, v in stmt_params.items() if k not in _immutable}
                 )
             else:
                 stmt = sqlite_insert(JobModel).values(**stmt_params)
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=['id'],
+                    index_elements=['id', 'user_id'],
                     set_={k: v for k, v in stmt_params.items() if k not in _immutable}
                 )
 
@@ -423,14 +461,14 @@ class PostgresRepository(JobRepository):
             if self.is_postgres:
                 stmt = postgres_insert(TailoredResultModel).values(**stmt_params)
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=['job_id'],
-                    set_={k: v for k, v in stmt_params.items() if k != 'job_id'}
+                    index_elements=['job_id', 'user_id'],
+                    set_={k: v for k, v in stmt_params.items() if k not in {'job_id', 'user_id'}}
                 )
             else:
                 stmt = sqlite_insert(TailoredResultModel).values(**stmt_params)
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=['job_id'],
-                    set_={k: v for k, v in stmt_params.items() if k != 'job_id'}
+                    index_elements=['job_id', 'user_id'],
+                    set_={k: v for k, v in stmt_params.items() if k not in {'job_id', 'user_id'}}
                 )
 
             try:
