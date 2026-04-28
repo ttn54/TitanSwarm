@@ -12,6 +12,8 @@ services:
       --server.address=0.0.0.0
       --server.headless=true
       --browser.gatherUsageStats=false
+      --server.enableCORS=false
+      --server.enableXsrfProtection=false
     ports:
       - "8501:8501"
     env_file:
