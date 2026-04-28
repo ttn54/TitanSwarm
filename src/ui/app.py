@@ -655,6 +655,7 @@ def _render_auth_page():
                     st.session_state["user_id"] = uid
                     st.session_state["username"] = username
                     _set_session_cookie(uid, username)
+                    time.sleep(0.3)
                     st.rerun()
 
     with tab_register:
@@ -677,6 +678,7 @@ def _render_auth_page():
                     st.session_state["username"] = new_username
                     _set_session_cookie(uid, new_username)
                     st.success(f"Account created! Welcome, {new_username}.")
+                    time.sleep(0.3)
                     st.rerun()
                 except ValueError as e:
                     st.error(str(e))
@@ -857,6 +859,7 @@ with st.sidebar:
         _delete_session_cookie()
         st.session_state.clear()
         st.session_state["_force_logout"] = True
+        time.sleep(0.3)
         st.rerun()
 
 # Track which page we're on so Preferences can detect "just arrived" state
