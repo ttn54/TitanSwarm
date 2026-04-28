@@ -178,40 +178,62 @@ class PostgresRepository(JobRepository):
                     pass  # table doesn't exist yet — create_all will handle it
 
     async def _ensure_multi_tenant_keys(self):
-        """Rebuild old SQLite tables so jobs/results are keyed by user_id too."""
-        if self.is_postgres:
-            return
-
+        """Rebuild old tables so jobs/results are keyed by user_id too."""
         async with self.engine.begin() as conn:
-            for table_name, table_model, expected_pk in (
-                ("jobs", JobModel.__table__, ["id", "user_id"]),
-                ("tailored_results", TailoredResultModel.__table__, ["job_id", "user_id"]),
-            ):
-                table_info = await conn.run_sync(
-                    lambda sync_conn, t=table_name: sync_conn.execute(
-                        text(f"PRAGMA table_info({t})")
-                    ).fetchall()
+            if self.is_postgres:
+                # PostgreSQL: drop old single-column PKs and add composite ones
+                await self._migrate_postgres_keys(conn)
+            else:
+                # SQLite: rename table, recreate, copy data back
+                await self._migrate_sqlite_keys(conn)
+
+    async def _migrate_postgres_keys(self, conn):
+        """Migrate PostgreSQL tables to composite primary keys."""
+        try:
+            # Drop old PK constraints if they exist
+            await conn.execute(text("ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_pkey CASCADE"))
+            await conn.execute(text("ALTER TABLE tailored_results DROP CONSTRAINT IF EXISTS tailored_results_pkey CASCADE"))
+
+            # Add new composite PKs
+            await conn.execute(text("ALTER TABLE jobs ADD PRIMARY KEY (id, user_id)"))
+            await conn.execute(text("ALTER TABLE tailored_results ADD PRIMARY KEY (job_id, user_id)"))
+            
+            logger.info("PostgreSQL: migrated to composite primary keys (id, user_id)")
+        except Exception as e:
+            logger.warning(f"PostgreSQL migration skipped or already applied: {e}")
+
+    async def _migrate_sqlite_keys(self, conn):
+        """Migrate SQLite tables to composite primary keys by table rebuild."""
+        for table_name, table_model, expected_pk in (
+            ("jobs", JobModel.__table__, ["id", "user_id"]),
+            ("tailored_results", TailoredResultModel.__table__, ["job_id", "user_id"]),
+        ):
+            table_info = await conn.run_sync(
+                lambda sync_conn, t=table_name: sync_conn.execute(
+                    text(f"PRAGMA table_info({t})")
+                ).fetchall()
+            )
+            if not table_info:
+                continue
+
+            current_pk = [row[1] for row in sorted(table_info, key=lambda row: row[5]) if row[5]]
+            if current_pk == expected_pk:
+                continue
+
+            legacy_name = f"{table_name}_legacy"
+            await conn.execute(text(f"ALTER TABLE {table_name} RENAME TO {legacy_name}"))
+            await conn.run_sync(Base.metadata.create_all)
+
+            columns = [column.name for column in table_model.columns]
+            column_sql = ", ".join(columns)
+            await conn.execute(
+                text(
+                    f"INSERT INTO {table_name} ({column_sql}) "
+                    f"SELECT {column_sql} FROM {legacy_name}"
                 )
-                if not table_info:
-                    continue
-
-                current_pk = [row[1] for row in sorted(table_info, key=lambda row: row[5]) if row[5]]
-                if current_pk == expected_pk:
-                    continue
-
-                legacy_name = f"{table_name}_legacy"
-                await conn.execute(text(f"ALTER TABLE {table_name} RENAME TO {legacy_name}"))
-                await conn.run_sync(Base.metadata.create_all)
-
-                columns = [column.name for column in table_model.columns]
-                column_sql = ", ".join(columns)
-                await conn.execute(
-                    text(
-                        f"INSERT INTO {table_name} ({column_sql}) "
-                        f"SELECT {column_sql} FROM {legacy_name}"
-                    )
-                )
-                await conn.execute(text(f"DROP TABLE {legacy_name}"))
+            )
+            await conn.execute(text(f"DROP TABLE {legacy_name}"))
+            logger.info(f"SQLite: rebuilt table {table_name} with composite key")
 
     async def close(self):
         """Disposes the engine connection pool."""
