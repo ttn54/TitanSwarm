@@ -179,13 +179,13 @@ class PostgresRepository(JobRepository):
 
     async def _ensure_multi_tenant_keys(self):
         """Rebuild old tables so jobs/results are keyed by user_id too."""
-        async with self.engine.begin() as conn:
-            if self.is_postgres:
-                # PostgreSQL: drop old single-column PKs and add composite ones
+        if self.is_postgres:
+            # PostgreSQL: drop old single-column PKs and add composite ones
+            async with self.engine.begin() as conn:
                 await self._migrate_postgres_keys(conn)
-            else:
-                # SQLite: rename table, recreate, copy data back
-                await self._migrate_sqlite_keys(conn)
+        else:
+            # SQLite: use synchronous connection to avoid transaction issues
+            await self._migrate_sqlite_keys()
 
     async def _migrate_postgres_keys(self, conn):
         """Migrate PostgreSQL tables to composite primary keys."""
@@ -202,38 +202,108 @@ class PostgresRepository(JobRepository):
         except Exception as e:
             logger.warning(f"PostgreSQL migration skipped or already applied: {e}")
 
-    async def _migrate_sqlite_keys(self, conn):
-        """Migrate SQLite tables to composite primary keys by table rebuild."""
-        for table_name, table_model, expected_pk in (
-            ("jobs", JobModel.__table__, ["id", "user_id"]),
-            ("tailored_results", TailoredResultModel.__table__, ["job_id", "user_id"]),
-        ):
-            table_info = await conn.run_sync(
-                lambda sync_conn, t=table_name: sync_conn.execute(
-                    text(f"PRAGMA table_info({t})")
-                ).fetchall()
-            )
-            if not table_info:
-                continue
-
-            current_pk = [row[1] for row in sorted(table_info, key=lambda row: row[5]) if row[5]]
-            if current_pk == expected_pk:
-                continue
-
-            legacy_name = f"{table_name}_legacy"
-            await conn.execute(text(f"ALTER TABLE {table_name} RENAME TO {legacy_name}"))
-            await conn.run_sync(Base.metadata.create_all)
-
-            columns = [column.name for column in table_model.columns]
-            column_sql = ", ".join(columns)
-            await conn.execute(
-                text(
-                    f"INSERT INTO {table_name} ({column_sql}) "
-                    f"SELECT {column_sql} FROM {legacy_name}"
-                )
-            )
-            await conn.execute(text(f"DROP TABLE {legacy_name}"))
-            logger.info(f"SQLite: rebuilt table {table_name} with composite key")
+    async def _migrate_sqlite_keys(self):
+        """Migrate SQLite tables to composite primary keys by table rebuild using sync connection."""
+        import sqlite3
+        db_path = self.engine.url.database
+        
+        try:
+            # Use a direct synchronous SQLite connection to avoid async/transaction issues
+            conn = sqlite3.connect(db_path)
+            conn.execute("PRAGMA foreign_keys=OFF")
+            
+            for table_name, new_columns in [
+                ("jobs", ["id", "company", "role", "status", "job_description", "url", 
+                         "required_skills", "custom_questions", "location", "date_posted",
+                         "user_id", "salary_min", "salary_max", "salary_currency", "salary_interval"]),
+                ("tailored_results", ["job_id", "resume_customized", "cover_letter_customized", 
+                                      "q_a_json", "notes", "user_id"]),
+            ]:
+                try:
+                    # Check if migration is needed
+                    pragma_result = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                    if not pragma_result:
+                        logger.info(f"{table_name} does not exist yet, skipping migration")
+                        continue
+                    
+                    current_pk = [row[1] for row in pragma_result if row[5]]  # row[5] is pk rank
+                    
+                    # Define expected PKs
+                    if table_name == "jobs":
+                        expected_pk = ["id", "user_id"]
+                    else:
+                        expected_pk = ["job_id", "user_id"]
+                    
+                    if current_pk == expected_pk:
+                        logger.info(f"{table_name} already has correct composite PK")
+                        continue
+                    
+                    logger.info(f"Migrating {table_name} from PK {current_pk} to {expected_pk}")
+                    
+                    # Rename old table
+                    legacy_name = f"{table_name}_legacy"
+                    conn.execute(f"ALTER TABLE {table_name} RENAME TO {legacy_name}")
+                    
+                    # Create new table with composite PK
+                    if table_name == "jobs":
+                        conn.execute("""
+                            CREATE TABLE jobs (
+                                id VARCHAR NOT NULL,
+                                company VARCHAR NOT NULL,
+                                role VARCHAR NOT NULL,
+                                status VARCHAR(14) NOT NULL,
+                                job_description VARCHAR NOT NULL,
+                                url VARCHAR NOT NULL,
+                                required_skills VARCHAR NOT NULL,
+                                custom_questions VARCHAR NOT NULL,
+                                location VARCHAR NOT NULL,
+                                date_posted VARCHAR NOT NULL,
+                                user_id INTEGER NOT NULL,
+                                salary_min FLOAT,
+                                salary_max FLOAT,
+                                salary_currency VARCHAR NOT NULL,
+                                salary_interval VARCHAR NOT NULL,
+                                PRIMARY KEY (id, user_id)
+                            )
+                        """)
+                        conn.execute("CREATE INDEX ix_jobs_company ON jobs(company)")
+                        conn.execute("CREATE INDEX ix_jobs_role ON jobs(role)")
+                        conn.execute("CREATE INDEX ix_jobs_status ON jobs(status)")
+                        conn.execute("CREATE INDEX ix_jobs_user_id ON jobs(user_id)")
+                    elif table_name == "tailored_results":
+                        conn.execute("""
+                            CREATE TABLE tailored_results (
+                                job_id VARCHAR NOT NULL,
+                                resume_customized VARCHAR NOT NULL,
+                                cover_letter_customized VARCHAR NOT NULL,
+                                q_a_json VARCHAR NOT NULL,
+                                notes VARCHAR NOT NULL,
+                                user_id INTEGER NOT NULL,
+                                PRIMARY KEY (job_id, user_id)
+                            )
+                        """)
+                        conn.execute("CREATE INDEX ix_tailored_results_job_id ON tailored_results(job_id)")
+                        conn.execute("CREATE INDEX ix_tailored_results_user_id ON tailored_results(user_id)")
+                    
+                    # Copy data back
+                    column_list = ", ".join(new_columns)
+                    conn.execute(f"INSERT INTO {table_name} ({column_list}) SELECT {column_list} FROM {legacy_name}")
+                    
+                    # Drop legacy table
+                    conn.execute(f"DROP TABLE {legacy_name}")
+                    
+                    logger.info(f"SQLite: successfully migrated {table_name} to composite key")
+                    
+                except Exception as e:
+                    logger.warning(f"Migration error for {table_name}: {e}")
+                    continue
+            
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.commit()
+            conn.close()
+            logger.info("SQLite: multi-tenant key migration completed")
+        except Exception as e:
+            logger.error(f"Failed to migrate SQLite keys: {e}")
 
     async def close(self):
         """Disposes the engine connection pool."""
