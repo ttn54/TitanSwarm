@@ -61,6 +61,7 @@ nvidia-nvtx-cu12==12.8.90
 openai==2.29.0
 packaging==26.0
 pandas==2.3.3
+pdfplumber==0.11.4
 pillow==12.1.1
 playwright==1.58.0
 pluggy==1.6.0
