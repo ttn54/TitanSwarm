@@ -156,6 +156,9 @@ class PostgresRepository(JobRepository):
             ("user_profile",     "user_id",          "INTEGER DEFAULT 1"),
             ("user_profile",     "education_json",   "TEXT DEFAULT '[]'"),
             ("tailored_results", "user_id",          "INTEGER DEFAULT 1"),
+            ("tailored_results", "ai_json",           "TEXT NOT NULL DEFAULT ''"),
+            ("tailored_results", "pdf_bytes",         "BLOB"),
+            ("tailored_results", "cover_letter_text", "TEXT"),
         ]
         async with self.engine.begin() as conn:
             for table, col, col_def in new_columns:

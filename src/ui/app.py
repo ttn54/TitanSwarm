@@ -1135,7 +1135,10 @@ if nav == "Job Feed":
                     # Show download button if PDF is already generated for this job
                     # Load from DB if not in session state (page was refreshed)
                     if f"pdf_{job.id}" not in st.session_state:
-                        _db_result = run_async(repo.get_tailored_result(job.id, user_id=_USER_ID))
+                        try:
+                            _db_result = run_async(repo.get_tailored_result(job.id, user_id=_USER_ID))
+                        except Exception:
+                            _db_result = None
                         if _db_result:
                             _db_ai_json, _db_pdf, _db_cl = _db_result
                             st.session_state[f"pdf_{job.id}"] = _db_pdf
@@ -1399,7 +1402,10 @@ elif nav == "My Applications":
             with rc2:
                 # Serve cached PDF — load from DB if not in session state
                 if f"pdf_{job.id}" not in st.session_state:
-                    _db_r = run_async(repo.get_tailored_result(job.id, user_id=_USER_ID))
+                    try:
+                        _db_r = run_async(repo.get_tailored_result(job.id, user_id=_USER_ID))
+                    except Exception:
+                        _db_r = None
                     if _db_r:
                         st.session_state[f"pdf_{job.id}"] = _db_r[1]
                 _cached = st.session_state.get(f"pdf_{job.id}")
