@@ -1070,6 +1070,12 @@ if nav == "Job Feed":
                                 "Make sure GEMINI_API_KEY (or OPENAI_API_KEY) is set in your .env file."
                             )
                             st.rerun()
+                        if not job.job_description.strip():
+                            st.session_state[err_key] = (
+                                "This job has no description available. "
+                                "Visit the job URL, copy the full description, and paste it into the job card to enable tailoring."
+                            )
+                            st.rerun()
                         _db_ledger_content = run_async(repo.get_ledger(_USER_ID))
                         with st.spinner(f"Tailoring resume for {job.company}… (may retry if Gemini is busy)"):
                             try:

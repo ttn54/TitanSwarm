@@ -171,14 +171,14 @@ class SourcingEngine:
 
             all_found_ids.append(job_id)
 
-            # ── No-description filter ─────────────────────────────────────
-            # Jobs without a real description cannot be tailored — skip them.
+            # ── Description extraction ────────────────────────────────────
+            # Jobs with no description are still shown in the feed; they just
+            # cannot be tailored (handled gracefully by the UI).
             _BAD_DESC = {"", "Description not provided.", "None", "nan"}
             description = row.get("description")
             _desc_str = "" if (not description or (isinstance(description, float) and pd.isna(description))) else str(description).strip()
             if _desc_str in _BAD_DESC:
-                logger.debug(f"Skipping job {job_id}: no description")
-                continue
+                logger.info(f"Job {job_id} has no description — saving for feed display only.")
 
             # Deduplication: track whether this is a new record so we can
             # increment saved_count correctly.  We always call save_job so the
