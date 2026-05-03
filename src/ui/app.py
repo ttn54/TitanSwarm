@@ -1560,60 +1560,6 @@ elif nav == "Preferences":
                 })
                 st.session_state.profile = _saved_pf
                 run_async(repo.save_profile(_saved_pf, user_id=_USER_ID))
-
-                # ── GitHub enrichment ────────────────────────────────────────
-                _gh_handle = st.session_state.get("_pf_github", "").strip()
-                if _gh_handle:
-                    with st.spinner("Syncing GitHub repos into AI context..."):
-                        from src.core.github_enricher import fetch_github_context
-                        _gh_text = fetch_github_context(_gh_handle)
-                    if _gh_text:
-                        # Load current DB ledger, replace/append GitHub section, save back
-                        _cur_ledger = run_async(repo.get_ledger(_USER_ID))
-                        _gh_marker = "## GitHub Projects:"
-                        if _gh_marker in _cur_ledger:
-                            _gh_base = _cur_ledger.split(_gh_marker)[0].rstrip()
-                        else:
-                            _gh_base = _cur_ledger.rstrip()
-                        _new_gh_ledger = _gh_base + f"\n\n{_gh_marker}\n\n{_gh_text}"
-                        run_async(repo.save_ledger(_USER_ID, _new_gh_ledger))
-                        # Rebuild the live tailor index from updated DB content
-                        if st.session_state.tailor:
-                            _lm_gh = LedgerManager.from_content(_new_gh_ledger, db_path="data/faiss.index")
-                            _lm_gh.model = st.session_state.st_model
-                            _lm_gh.build_index()
-                            st.session_state.tailor.ledger = _lm_gh
-                        # Invalidate the resume text cache so tailor picks up new context
-                        st.session_state.pop("resume_text_cache", None)
-                        st.toast("GitHub repos synced into AI context!", icon="🐙")
-                    else:
-                        st.warning("Could not fetch GitHub repos — check the username in your profile.")
-
-                # ── Website enrichment ───────────────────────────────────────
-                _website_url = st.session_state.get("_pf_website", "").strip()
-                if _website_url:
-                    with st.spinner("Extracting education & experience from your website..."):
-                        from src.core.website_enricher import fetch_website_context
-                        _web_text = fetch_website_context(_website_url)
-                    if _web_text:
-                        _cur_ledger_web = run_async(repo.get_ledger(_USER_ID))
-                        _web_marker = "## Website:"
-                        if _web_marker in _cur_ledger_web:
-                            _web_base = _cur_ledger_web.split(_web_marker)[0].rstrip()
-                        else:
-                            _web_base = _cur_ledger_web.rstrip()
-                        _new_web_ledger = _web_base + f"\n\n{_web_text}"
-                        run_async(repo.save_ledger(_USER_ID, _new_web_ledger))
-                        if st.session_state.tailor:
-                            _lm_web = LedgerManager.from_content(_new_web_ledger, db_path="data/faiss.index")
-                            _lm_web.model = st.session_state.st_model
-                            _lm_web.build_index()
-                            st.session_state.tailor.ledger = _lm_web
-                        st.session_state.pop("resume_text_cache", None)
-                        st.toast("Website context synced into AI!", icon="🌐")
-                    else:
-                        st.warning("Could not extract content from your website — the page may be JavaScript-only.")
-
                 st.toast("Preferences saved!", icon="✅")
                 st.rerun()
 
