@@ -453,16 +453,15 @@ class PostgresRepository(JobRepository):
 
     async def update_status(self, job_id: str, status: JobStatus, user_id: int = 1) -> bool:
         """Transitions a job to a new status."""
+        from sqlalchemy import update as sa_update
         async with self.async_session() as session:
             result = await session.execute(
-                select(JobModel).where(JobModel.id == job_id, JobModel.user_id == user_id)
+                sa_update(JobModel)
+                .where(JobModel.id == job_id, JobModel.user_id == user_id)
+                .values(status=status)
             )
-            job_model = result.scalar_one_or_none()
-            if job_model is None:
-                return False
-            job_model.status = status
             await session.commit()
-            return True
+            return result.rowcount > 0
 
     async def count_all(self, user_id: int = 1) -> int:
         """Returns the total count of all jobs for a user."""
