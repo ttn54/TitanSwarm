@@ -63,6 +63,11 @@ class TailoredExperience(BaseModel):
     location: str = Field(default="", description="e.g. 'Burnaby, BC'")
     bullets: list[str] = Field(..., description="1-2 bullets in XYZ format rewritten to mirror the JD's keywords. ONLY facts from the resume.")
 
+    @field_validator("location", mode="before")
+    @classmethod
+    def _coerce_location(cls, v):
+        return v if isinstance(v, str) else ""
+
 
 class TailoredEducation(BaseModel):
     degree: str = Field(..., description="Exact degree/program text from candidate context.")
@@ -71,6 +76,11 @@ class TailoredEducation(BaseModel):
     end_date: str = Field(..., description="e.g. 'Present'")
     location: str = Field(default="", description="e.g. 'Burnaby, BC'")
     bullets: list[str] = Field(default_factory=list, description="Optional education bullets rewritten from source facts only.")
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def _coerce_location(cls, v):
+        return v if isinstance(v, str) else ""
 
 class TailoredApplication(BaseModel):
     job_id: str
