@@ -81,7 +81,8 @@ _CA_MARKERS = {", bc", ", on", ", ab", ", qc", ", mb", ", sk", ", ns", ", nb",
 
 def _detect_country_indeed(location: str) -> str:
     """Return 'canada' if the location string looks Canadian, else 'usa'."""
-    loc = location.lower()
+    # Normalise spacing: "Vancouver,BC" and "Vancouver, BC" both become "vancouver, bc"
+    loc = location.lower().replace(",", ", ").replace(",  ", ", ")
     if any(m in loc for m in _CA_MARKERS):
         return "canada"
     return "usa"
