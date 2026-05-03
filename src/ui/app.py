@@ -1649,14 +1649,21 @@ elif nav == "Preferences":
                         from src.core.github_enricher import fetch_github_context
                         _gh_text = fetch_github_context(_gh_handle)
                     if _gh_text:
-                        _lp_gh = os.path.join(
-                            os.path.dirname(__file__), "..", "..", "data", "ledger.md"
-                        )
-                        _lm_refresh = LedgerManager(ledger_path=_lp_gh, db_path="data/faiss.index")
-                        _lm_refresh.write_github_section(_gh_text)
-                        # Rebuild live tailor index so new repos are immediately searchable
+                        # Load current DB ledger, replace/append GitHub section, save back to DB
+                        _cur_ledger_gh = run_async(repo.get_ledger(_USER_ID))
+                        _gh_marker = "## GitHub Projects:"
+                        if _gh_marker in _cur_ledger_gh:
+                            _gh_base = _cur_ledger_gh.split(_gh_marker)[0].rstrip()
+                        else:
+                            _gh_base = (_cur_ledger_gh or "").rstrip()
+                        _new_gh_ledger = _gh_base + f"\n\n{_gh_marker}\n\n{_gh_text}"
+                        run_async(repo.save_ledger(_USER_ID, _new_gh_ledger))
+                        # Replace tailor's ledger so _parse_ledger_as_resume reads the new content
                         if st.session_state.tailor:
-                            st.session_state.tailor.ledger.build_index()
+                            _lm_gh = LedgerManager.from_content(_new_gh_ledger, db_path="data/faiss.index")
+                            _lm_gh.model = st.session_state.st_model
+                            _lm_gh.build_index()
+                            st.session_state.tailor.ledger = _lm_gh
                         st.session_state.pop("resume_text_cache", None)
                         st.toast("GitHub projects refreshed!", icon="🐙")
                         st.rerun()
