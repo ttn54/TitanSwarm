@@ -322,7 +322,9 @@ def _extract_github_tech_map(resume_text: str) -> dict[str, str]:
     # Build lowercase→canonical lookup once
     kw_lookup: list[tuple[str, str]] = _KNOWN_TECH_KEYWORDS
 
-    repo_blocks = re.split(r"(?=^### )", gh_section, flags=re.MULTILINE)
+    # Only split on actual repo headers — these always contain ★ (star count)
+    # This prevents ### subheadings inside README excerpts from being treated as repo separators
+    repo_blocks = re.split(r"(?=^### [\w\-. ]+\s+★)", gh_section, flags=re.MULTILINE)
     for block in repo_blocks:
         block = block.strip()
         if not block.startswith("###"):
@@ -352,7 +354,8 @@ def _extract_github_tech_map(resume_text: str) -> dict[str, str]:
                 found[kw_display.lower()] = kw_display
 
         if found:
-            tech_map[repo_name.lower()] = ", ".join(found.values())
+            # Cap at 15 to keep annotations focused; header language is always first
+            tech_map[repo_name.lower()] = ", ".join(list(found.values())[:15])
 
     return tech_map
 

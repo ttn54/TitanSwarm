@@ -14,7 +14,9 @@ import urllib.request
 
 _GITHUB_API = "https://api.github.com"
 _MAX_REPOS = 6
-_README_CHARS = 2000  # enough to capture Tech Stack sections in most READMEs
+_README_INTRO_CHARS = 500   # always include the opening description
+_README_TECH_CHARS  = 2000  # chars to capture from the Tech Stack section onwards
+_README_FALLBACK_CHARS = 3000  # if no Tech Stack section found, take this many chars
 
 
 def fetch_github_context(username: str) -> str:
@@ -68,6 +70,7 @@ def fetch_github_context(username: str) -> str:
         topics      = ", ".join(repo.get("topics") or [])
 
         readme_text = _fetch_readme(username, name)
+        readme_excerpt = _smart_readme_excerpt(readme_text) if readme_text else ""
 
         header = f"### {name}  ★{stars}  |  {language}"
         if topics:
@@ -75,8 +78,8 @@ def fetch_github_context(username: str) -> str:
         lines.append(header)
         if description:
             lines.append(f"Description: {description}")
-        if readme_text:
-            lines.append(f"README: {readme_text[:_README_CHARS]}")
+        if readme_excerpt:
+            lines.append(f"README: {readme_excerpt}")
         else:
             # No README — synthesise a tech line from API metadata so the AI
             # still knows the stack (language + topics are reliable signals).
@@ -87,6 +90,44 @@ def fetch_github_context(username: str) -> str:
         lines.append("")  # blank line between repos
 
     return "\n".join(lines).strip()
+
+
+def _smart_readme_excerpt(readme: str) -> str:
+    """
+    Extract the most useful portion of a README for tech-stack detection.
+
+    Strategy:
+    1. Always include the first _README_INTRO_CHARS chars (project description).
+    2. Find the Tech Stack / Built With / Technologies section and include up to
+       _README_TECH_CHARS chars from that section onwards.
+    3. If no such section exists, return the first _README_FALLBACK_CHARS chars.
+
+    This ensures the Tech Stack section is never cut off regardless of how long
+    the Features / Documentation sections before it are.
+    """
+    import re as _re
+    _TECH_SECTION_RE = _re.compile(
+        r"(^#{1,3}\s*(?:tech(?:nolog(?:y|ies)|nical stack)?|built with|stack|dependencies|tools used)[^\n]*)",
+        _re.IGNORECASE | _re.MULTILINE,
+    )
+    intro = readme[:_README_INTRO_CHARS]
+    m = _TECH_SECTION_RE.search(readme)
+    if m:
+        tech_section = readme[m.start(): m.start() + _README_TECH_CHARS]
+        # Combine intro + tech section (deduplicate if they overlap)
+        if m.start() < _README_INTRO_CHARS:
+            excerpt = readme[:_README_INTRO_CHARS + _README_TECH_CHARS]
+        else:
+            excerpt = intro + "\n...\n" + tech_section
+    else:
+        # No dedicated tech section — just return the opening chunk
+        excerpt = readme[:_README_FALLBACK_CHARS]
+    # Replace ### with #### inside README excerpts so they don't get
+    # mistaken for repo-block separators (which also use ###) when the
+    # ledger is later split by _extract_github_tech_map.
+    import re as _re2
+    excerpt = _re2.sub(r"(?m)^### ", "#### ", excerpt)
+    return excerpt
 
 
 def _fetch_readme(username: str, repo_name: str) -> str:
