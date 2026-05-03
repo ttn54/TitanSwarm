@@ -55,6 +55,11 @@ class TailoredProject(BaseModel):
             return ", ".join(str(item) for item in v)
         return v
 
+    @field_validator("date", mode="before")
+    @classmethod
+    def _coerce_date(cls, v):
+        return v if isinstance(v, str) else ""
+
 class TailoredExperience(BaseModel):
     title: str = Field(..., description="Job title, e.g. 'Server'")
     company: str = Field(..., description="Company name, e.g. 'Pho Goodness Restaurant'")
@@ -80,6 +85,11 @@ class TailoredEducation(BaseModel):
     @field_validator("location", mode="before")
     @classmethod
     def _coerce_location(cls, v):
+        return v if isinstance(v, str) else ""
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def _coerce_dates(cls, v):
         return v if isinstance(v, str) else ""
 
 class TailoredApplication(BaseModel):

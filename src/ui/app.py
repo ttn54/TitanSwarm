@@ -1650,13 +1650,21 @@ elif nav == "Preferences":
                         _gh_text = fetch_github_context(_gh_handle)
                     if _gh_text:
                         # Load current DB ledger, replace/append GitHub section, save back to DB
-                        _cur_ledger_gh = run_async(repo.get_ledger(_USER_ID))
+                        _cur_ledger_gh = run_async(repo.get_ledger(_USER_ID)) or ""
                         _gh_marker = "## GitHub Projects:"
-                        if _gh_marker in _cur_ledger_gh:
-                            _gh_base = _cur_ledger_gh.split(_gh_marker)[0].rstrip()
-                        else:
-                            _gh_base = (_cur_ledger_gh or "").rstrip()
-                        _new_gh_ledger = _gh_base + f"\n\n{_gh_marker}\n\n{_gh_text}"
+                        _resume_marker = "## Imported Resume:"
+                        # Preserve resume block regardless of position
+                        _resume_block = ""
+                        if _resume_marker in _cur_ledger_gh:
+                            _resume_block = "\n\n" + _resume_marker + _cur_ledger_gh.split(_resume_marker, 1)[1].rstrip()
+                        # Strip both sections to get bare base
+                        _gh_base = _cur_ledger_gh
+                        if _gh_marker in _gh_base:
+                            _gh_base = _gh_base.split(_gh_marker)[0]
+                        if _resume_marker in _gh_base:
+                            _gh_base = _gh_base.split(_resume_marker)[0]
+                        _gh_base = _gh_base.rstrip()
+                        _new_gh_ledger = _gh_base + f"\n\n{_gh_marker}\n\n{_gh_text}" + _resume_block
                         run_async(repo.save_ledger(_USER_ID, _new_gh_ledger))
                         # Replace tailor's ledger so _parse_ledger_as_resume reads the new content
                         if st.session_state.tailor:
