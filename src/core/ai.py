@@ -254,13 +254,63 @@ def _parse_ledger_as_resume(ledger_path: str) -> str:
     return content.strip()
 
 
+# Canonical tech keyword list used for scanning GitHub README blocks.
+# These are the only terms that will appear in [GitHub full stack:] annotations.
+_KNOWN_TECH_KEYWORDS: list[tuple[str, str]] = [
+    # Frontend frameworks & libraries
+    ("react", "React"), ("next.js", "Next.js"), ("nextjs", "Next.js"),
+    ("vue", "Vue"), ("angular", "Angular"), ("svelte", "Svelte"),
+    ("graphql", "GraphQL"), ("apollo", "Apollo"),
+    ("redux", "Redux"), ("zustand", "Zustand"), ("recoil", "Recoil"), ("jotai", "Jotai"),
+    ("tailwind", "Tailwind CSS"), ("sass", "Sass"), ("scss", "SCSS"),
+    ("vite", "Vite"), ("webpack", "Webpack"),
+    ("react native", "React Native"), ("expo", "Expo"), ("flutter", "Flutter"),
+    ("jest", "Jest"), ("vitest", "Vitest"), ("cypress", "Cypress"),
+    ("storybook", "Storybook"), ("radix", "Radix UI"), ("shadcn", "shadcn/ui"),
+    # Backend frameworks
+    ("fastapi", "FastAPI"), ("django", "Django"), ("flask", "Flask"),
+    ("express", "Express"), ("nestjs", "NestJS"), ("spring", "Spring"),
+    ("gin", "Gin"), ("fiber", "Fiber"), ("actix", "Actix"),
+    # Languages
+    ("typescript", "TypeScript"), ("javascript", "JavaScript"),
+    ("python", "Python"), ("golang", "Go"), (" go ", "Go"),
+    ("rust", "Rust"), ("java", "Java"), ("kotlin", "Kotlin"),
+    ("swift", "Swift"), ("c#", "C#"), (".net", ".NET"),
+    ("c++", "C++"), ("ruby", "Ruby"), ("php", "PHP"),
+    # Databases & storage
+    ("postgresql", "PostgreSQL"), ("postgres", "PostgreSQL"),
+    ("mysql", "MySQL"), ("mongodb", "MongoDB"), ("redis", "Redis"),
+    ("sqlite", "SQLite"), ("cassandra", "Cassandra"), ("elasticsearch", "Elasticsearch"),
+    ("prisma", "Prisma"), ("sqlalchemy", "SQLAlchemy"), ("typeorm", "TypeORM"),
+    ("supabase", "Supabase"), ("firebase", "Firebase"),
+    # Infra & cloud
+    ("docker", "Docker"), ("kubernetes", "Kubernetes"),
+    ("aws", "AWS"), ("gcp", "GCP"), ("azure", "Azure"),
+    ("vercel", "Vercel"), ("netlify", "Netlify"), ("terraform", "Terraform"),
+    ("github actions", "GitHub Actions"), ("ci/cd", "CI/CD"),
+    # AI / ML
+    ("langchain", "LangChain"), ("pytorch", "PyTorch"), ("tensorflow", "TensorFlow"),
+    ("faiss", "FAISS"), ("openai", "OpenAI"), ("gemini", "Gemini"),
+    ("pandas", "Pandas"), ("numpy", "NumPy"), ("scikit-learn", "scikit-learn"),
+    # Protocols & auth
+    ("grpc", "gRPC"), ("websocket", "WebSocket"),
+    ("jwt", "JWT"), ("oauth", "OAuth"),
+    # Distributed / messaging
+    ("raft", "Raft"), ("kafka", "Kafka"), ("rabbitmq", "RabbitMQ"),
+    ("asyncio", "Asyncio"), ("httpx", "HTTPX"), ("celery", "Celery"),
+    ("node.js", "Node.js"), ("nodejs", "Node.js"),
+]
+
+
 def _extract_github_tech_map(resume_text: str) -> dict[str, str]:
     """
     Parse the '## GitHub Projects:' section and return a dict mapping
-    lowercase repo name → extracted tech stack string from the README.
+    lowercase repo name → tech stack string (only verified tech keywords).
 
-    Looks for lines like: "### RepoName  ★0  |  TypeScript"
-    and then scans the README text for Tech Stack / Built With sections.
+    Strategy:
+    1. Extract the primary language from the header line "### Repo  ★0  |  Language".
+    2. Scan the entire README block for known tech keywords from _KNOWN_TECH_KEYWORDS.
+    This avoids false-positives from README feature descriptions (e.g. "Comprehensive Search").
     """
     tech_map: dict[str, str] = {}
     _GITHUB_MARKER = "## GitHub Projects:"
@@ -269,52 +319,40 @@ def _extract_github_tech_map(resume_text: str) -> dict[str, str]:
 
     gh_section = resume_text.split(_GITHUB_MARKER, 1)[1]
 
-    # Split into per-repo blocks by the ### heading
+    # Build lowercase→canonical lookup once
+    kw_lookup: list[tuple[str, str]] = _KNOWN_TECH_KEYWORDS
+
     repo_blocks = re.split(r"(?=^### )", gh_section, flags=re.MULTILINE)
     for block in repo_blocks:
         block = block.strip()
         if not block.startswith("###"):
             continue
-        # Repo name from "### RepoName  ★0  |  TypeScript"
+
+        # Repo name from "### RepoName  ★0  |  Language"
         header_m = re.match(r"^### ([\w\-. ]+?)\s+[★|]", block)
         if not header_m:
             continue
         repo_name = header_m.group(1).strip()
 
-        # Collect all tech mentioned in this block
-        # Strategy: find lists under "Tech Stack", "Built With", "Frontend", "Backend",
-        # "Languages", "Technologies" headings, and also the "|  Language" from the header.
-        techs: list[str] = []
+        # Primary language from header: "| TypeScript" — handle end-of-line
+        header_line = block.split("\n")[0]
+        lang_m = re.search(r"\|\s+([A-Za-z][A-Za-z+#]*)", header_line)
 
-        # Language from header line (e.g. "| TypeScript")
-        lang_m = re.search(r"\|\s+([A-Za-z+#]+)\s", block.split("\n")[0])
+        block_lower = block.lower()
+        found: dict[str, str] = {}  # canonical_lower → canonical display name
+
+        # Add header language first (highest confidence)
         if lang_m:
-            techs.append(lang_m.group(1))
+            lang = lang_m.group(1)
+            found[lang.lower()] = lang
 
-        # Scan README for **Tech** or - **Tech** or "React" "TypeScript" etc.
-        # Look for bold items like **React**, **TypeScript**, **Vite**
-        bold_techs = re.findall(r"\*\*([A-Za-z][A-Za-z0-9.# +\-]{1,30})\*\*", block)
-        techs.extend(bold_techs)
+        # Scan full block text for known tech keywords
+        for kw_lower, kw_display in kw_lookup:
+            if kw_lower in block_lower and kw_display.lower() not in found:
+                found[kw_display.lower()] = kw_display
 
-        # Look for "Tech Stack" or "Frontend" section lines  (e.g. "- React with TypeScript")
-        tech_lines = re.findall(
-            r"(?i)(?:tech stack|frontend|backend|built with|technologies)[^\n]*\n((?:[-*•]\s+[^\n]+\n?)+)",
-            block,
-        )
-        for chunk in tech_lines:
-            items = re.findall(r"[-*•]\s+([^\n]+)", chunk)
-            techs.extend(items)
-
-        if techs:
-            # Deduplicate preserving order
-            seen: set[str] = set()
-            unique_techs = []
-            for t in techs:
-                t_clean = t.strip().strip("*").strip()
-                if t_clean and t_clean.lower() not in seen and len(t_clean) < 40:
-                    seen.add(t_clean.lower())
-                    unique_techs.append(t_clean)
-            tech_map[repo_name.lower()] = ", ".join(unique_techs[:12])
+        if found:
+            tech_map[repo_name.lower()] = ", ".join(found.values())
 
     return tech_map
 
