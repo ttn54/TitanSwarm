@@ -115,6 +115,24 @@ def _has_placeholder_bullets(result: TailoredApplication) -> bool:
     return False
 
 
+_TECH_TITLE_KEYWORDS = {
+    "engineer", "developer", "software", "programmer", "analyst", "architect",
+    "designer", "lead", "scientist", "researcher", "intern", "co-op", "coop",
+    "data", "cloud", "devops", "sre", "qa", "tester", "technical", "tech",
+    "backend", "frontend", "fullstack", "full-stack", "mobile", "web",
+    "platform", "infrastructure", "security", "network", "database",
+    "machine learning", "deep learning", "ai ", "ml ",
+}
+
+def _is_work_relevant(experience: list) -> bool:
+    """Return True if any work experience entry has a tech/engineering title."""
+    for exp in experience:
+        title_lower = (exp.title or "").lower()
+        if any(kw in title_lower for kw in _TECH_TITLE_KEYWORDS):
+            return True
+    return False
+
+
 def _is_generic_education_bullet(text: str) -> bool:
     t = (text or "").strip().lower()
     if not t:
@@ -558,8 +576,8 @@ class AITailor:
             "  STEP C: Rank ALL candidate projects by overlap count. Select the top 3 only.\n"
             "  For the 'tech' field per project: list ONLY the 4-5 techs from that project "
             "with the highest overlap with THIS JD's keywords — not the full stack.\n"
-            "  BULLET COUNT RULE (after ranking by overlap): project #1 must have 4 bullets, project #2 must have 3 bullets,"
-            " and project #3 must have 2 bullets.\n"
+            "  BULLET COUNT RULE (after ranking by overlap): project #1 must have 4 bullets, project #2 must have 4 bullets,"
+            " and project #3 must have 3 bullets.\n"
             "3. For tailored_experience: if the CANDIDATE'S CONTEXT contains a 'WORK EXPERIENCE' section, "
             "populate this array with each role. For each entry rewrite the bullets in XYZ format "
             "('Accomplished X, as measured by Y, by doing Z') and naturally inject the top 3-5 exact JD keywords "
@@ -601,7 +619,7 @@ class AITailor:
             f"Projects with zero keyword overlap must be excluded entirely. "
             f"For the 'tech' field per project: list only the 4-5 techs with the highest overlap with THIS JD's keywords. "
             f"Set keyword_overlap_count on each selected project to the number of JD keywords matched. "
-            f"After ranking projects by overlap score, enforce bullet counts by rank: project #1 = 4 bullets, project #2 = 3 bullets, project #3 = 2 bullets. "
+            f"After ranking projects by overlap score, enforce bullet counts by rank: project #1 = 4 bullets, project #2 = 4 bullets, project #3 = 3 bullets. "
             f"Preserve project name as title exactly.\n"
             f"4. For tailored_experience: look for a 'WORK EXPERIENCE' section in the candidate's context above. "
             f"If found, include each role with XYZ-format bullets injecting JD keywords truthfully. "
@@ -630,14 +648,14 @@ class AITailor:
             key=lambda p: p.keyword_overlap_count,
             reverse=True,
         )
-        # Code-enforced rank caps keep resume length predictable: 4, 3, 2.
+        # Code-enforced rank caps keep resume length predictable.
+        # When work experience is not tech-relevant, give project #2 more bullets
+        # (4/4/3 instead of 4/3/2) to fill the space left by thin work bullets.
+        _work_relevant = _is_work_relevant(result.tailored_experience)
+        result.work_experience_relevant = _work_relevant
+        _caps = (4, 3, 2) if _work_relevant else (4, 4, 3)
         for i, proj in enumerate(result.tailored_projects):
-            if i == 0:
-                proj.bullets = proj.bullets[:4]
-            elif i == 1:
-                proj.bullets = proj.bullets[:3]
-            else:
-                proj.bullets = proj.bullets[:2]
+            proj.bullets = proj.bullets[:_caps[i]]
         # Hard cap: never show more than 4 skill categories on the resume
         result.skills_to_highlight = _merge_skill_categories(
             result.skills_to_highlight, max_categories=4

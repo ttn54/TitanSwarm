@@ -7,7 +7,7 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Times New Roman', Times, serif;
-            font-size: 10pt;
+            font-size: {{ font_size_pt | default('10pt') }};
             color: #000;
             line-height: 1.25;
             /* Approx. 0.4in margins to mirror the reference LaTeX layout */
@@ -48,10 +48,10 @@
         }
 
         /* ── Summary ── */
-        .summary { font-size: 10pt; margin-bottom: 4px; }
+        .summary { font-size: inherit; margin-bottom: 4px; }
 
         /* ── Skills — single line, · separated ── */
-        .skills-line { font-size: 10pt; margin-bottom: 1px; }
+        .skills-line { font-size: inherit; margin-bottom: 1px; }
 
         /* ── Entry blocks ── */
         .entry { margin-bottom: 5px; }
@@ -61,7 +61,7 @@
             align-items: baseline;
             width: 100%;
         }
-        .entry-title { font-weight: bold; font-size: 10pt; }
+        .entry-title { font-weight: bold; font-size: inherit; }
         .entry-date  { font-size: 9.5pt; white-space: nowrap; padding-left: 8px; }
         .entry-sub   { font-style: italic; font-size: 9.5pt; }
         .entry-loc   { font-style: italic; font-size: 9.5pt; white-space: nowrap; padding-left: 8px; }
@@ -71,7 +71,7 @@
             padding: 0;
         }
         li {
-            font-size: 10pt;
+            font-size: inherit;
             margin-bottom: 1px;
         }
     </style>

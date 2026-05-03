@@ -142,10 +142,15 @@ class PDFGenerator:
         template = self.env.get_template("resume.html")
         
         # Render the template with injected dictionary data
+        # Use slightly larger font when work experience is not tech-relevant
+        # so the extra project bullets fill the page properly.
+        _work_relevant = getattr(ai_data, "work_experience_relevant", True)
+        font_size_pt = "10pt" if _work_relevant else "10.5pt"
         rendered_html = template.render(
             personal_info=user_ledger.get("personal_info", {}),
             ledger=user_ledger,
-            ai_data=ai_data
+            ai_data=ai_data,
+            font_size_pt=font_size_pt,
         )
         
         # Ensure output directory exists
