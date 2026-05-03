@@ -238,8 +238,10 @@ def _parse_ledger_as_resume(ledger_path: str) -> str:
     github_block = ""
     if _GITHUB_MARKER in content:
         after_gh = content.split(_GITHUB_MARKER, 1)[1]
-        # Stop at the next top-level section heading (##) if present
-        next_section = re.search(r"\n## ", after_gh)
+        # Stop at the next TOP-LEVEL section marker (e.g. "## Imported Resume:").
+        # Top-level markers always end with ":" — README sub-headings like "## Features"
+        # do NOT end with ":", so this avoids truncating the block at README content.
+        next_section = re.search(r"\n## [A-Za-z][^\n]+:", after_gh)
         block_body = after_gh[: next_section.start()] if next_section else after_gh
         github_block = f"{_GITHUB_MARKER}\n{block_body.strip()}"
 
@@ -416,13 +418,16 @@ def _enrich_resume_with_github_tech(resume_text: str) -> str:
         if not matched_key:
             continue
         gh_tech = tech_map[matched_key]
-        # Find the tech line right after this title (next non-empty line)
+        # Find the tech line right after this title (next non-empty line that isn't a bullet)
         after_title = proj_section_text[pm.end():]
         tech_line_m = re.search(r"\n([^\n•\-*]+)\n", after_title)
         if tech_line_m:
-            insert_pos = pm.end() + tech_line_m.end() - 1  # after the tech line's newline
-            annotation = f"\n  [GitHub full stack: {gh_tech}]"
-            enriched = enriched[:insert_pos] + annotation + enriched[insert_pos:]
+            # REPLACE the original tech line with the GitHub-verified tech stack.
+            # This prevents the AI from copying the PDF's incomplete tech line and
+            # ensures it reads TypeScript/React instead of Python/Docker for frontend projects.
+            old_tech_start = pm.end() + tech_line_m.start() + 1  # skip leading \n
+            old_tech_end   = pm.end() + tech_line_m.end()   - 1  # keep trailing \n
+            enriched = enriched[:old_tech_start] + gh_tech + enriched[old_tech_end:]
 
     return resume_text[:proj_section_start] + enriched
 
@@ -696,8 +701,9 @@ class AITailor:
             "══════════════════════════════════════════════════════\n"
             "Every fact in every bullet must be directly traceable to CANDIDATE'S CONTEXT. "
             "Forbidden: invented tools, companies, metrics, dates, GPA, or technologies. "
-            "One allowed exception: lines tagged '[GitHub full stack: ...]' are verified code annotations — "
-            "technologies listed there ARE real and MAY be used for that project's bullets and tech field.\n\n"
+            "The tech line shown per project in 'TECHNICAL PROJECTS' has been pre-validated against "
+            "the GitHub source code — treat it as ground truth. Technologies in GitHub README excerpts "
+            "are also verified and MAY be used in bullets.\n\n"
 
             "══════════════════════════════════════════════════════\n"
             "RULE 1 — PROJECT SELECTION (DO THIS FIRST, IN ORDER)\n"
@@ -706,10 +712,9 @@ class AITailor:
             "STEP B — Score EVERY project from BOTH sources:\n"
             "  • '## GitHub Projects:' — each ### heading is a real project; use its README for facts.\n"
             "  • 'TECHNICAL PROJECTS' in the imported resume — supplement if GitHub has fewer than 3.\n"
-            "For each project count how many STEP A keywords appear in its README/description/stack.\n"
-            "CRITICAL: The imported resume's tech line per project is UNRELIABLE — it frequently omits\n"
-            "frontend technologies. The '[GitHub full stack: ...]' annotation is AUTHORITATIVE.\n"
-            "If a project has '[GitHub full stack: React, TypeScript, ...]', use THAT list for scoring.\n\n"
+            "For each project count how many STEP A keywords appear in its tech line/README/description.\n"
+            "CRITICAL: The tech line shown in TECHNICAL PROJECTS is AUTHORITATIVE and GitHub-verified —\n"
+            "use it directly for scoring, do NOT substitute it with anything else.\n\n"
             "STEP C — Apply domain boundary scoring. Identify the JD's PRIMARY domain, then:\n\n"
             "  JD domain = FRONTEND (React / TypeScript / Vue / Angular / GraphQL is the core ask):\n"
             "    ✅ COUNTS as overlap: React, TypeScript, JavaScript, GraphQL, Redux, Zustand, Recoil,\n"
@@ -735,8 +740,8 @@ class AITailor:
             "RULE 2 — TECH FIELD PER PROJECT\n"
             "══════════════════════════════════════════════════════\n"
             "List ONLY the 4-6 technologies from that project with the highest overlap with THIS JD. "
-            "Always pull the full stack from the GitHub README or '[GitHub full stack:]' annotation — "
-            "never copy the imported resume's tech line verbatim (it is frequently incomplete).\n\n"
+            "Use the tech line shown in TECHNICAL PROJECTS (it is GitHub-verified and authoritative). "
+            "Also consult the GitHub README excerpt for additional confirmed technologies.\n\n"
 
             "══════════════════════════════════════════════════════\n"
             "RULE 3 — BULLET WRITING\n"
