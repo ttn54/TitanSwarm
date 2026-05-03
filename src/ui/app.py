@@ -873,6 +873,12 @@ if nav == "Job Feed":
     with hc:
         st.markdown('<div class="main-header">Job Feed</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="main-subheader">Showing opportunities for <strong>{st.session_state.pref_role}</strong> · {st.session_state.pref_location}</div>', unsafe_allow_html=True)
+        _feed_ledger = run_async(st.session_state.repo.get_ledger(_USER_ID))
+        if _feed_ledger and "## Imported Resume:" in _feed_ledger:
+            _feed_resume_name = _feed_ledger.split("## Imported Resume:")[1].split("\n")[0].strip()
+            st.caption(f"📄 Resume loaded: {_feed_resume_name}")
+        else:
+            st.caption("⚠️ No resume uploaded — go to Preferences → Base Resume to upload one for AI match scoring.")
 
     # ── KPI strip ──
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1717,6 +1723,14 @@ elif nav == "Preferences":
         with st.container(border=True):
             st.markdown('<div class="profile-card-title">Base Resume</div>', unsafe_allow_html=True)
             st.markdown('<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.75rem;">Upload your PDF resume — text is extracted and added to the AI\'s fact ledger.</div>', unsafe_allow_html=True)
+            # Show currently saved resume name (if any)
+            _saved_ledger_for_badge = run_async(repo.get_ledger(_USER_ID))
+            _resume_marker = "## Imported Resume:"
+            if _saved_ledger_for_badge and _resume_marker in _saved_ledger_for_badge:
+                _saved_fname = _saved_ledger_for_badge.split(_resume_marker)[1].split("\n")[0].strip()
+                st.success(f"✅ Resume on file: **{_saved_fname}**  — upload a new one to replace it.")
+            else:
+                st.info("No resume uploaded yet.")
             uploaded = st.file_uploader("PDF", type=["pdf"], label_visibility="collapsed")
             if uploaded and st.button("📥 Ingest Resume into Ledger", use_container_width=True):
                 try:
