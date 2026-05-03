@@ -254,6 +254,138 @@ def _parse_ledger_as_resume(ledger_path: str) -> str:
     return content.strip()
 
 
+def _extract_github_tech_map(resume_text: str) -> dict[str, str]:
+    """
+    Parse the '## GitHub Projects:' section and return a dict mapping
+    lowercase repo name → extracted tech stack string from the README.
+
+    Looks for lines like: "### RepoName  ★0  |  TypeScript"
+    and then scans the README text for Tech Stack / Built With sections.
+    """
+    tech_map: dict[str, str] = {}
+    _GITHUB_MARKER = "## GitHub Projects:"
+    if _GITHUB_MARKER not in resume_text:
+        return tech_map
+
+    gh_section = resume_text.split(_GITHUB_MARKER, 1)[1]
+
+    # Split into per-repo blocks by the ### heading
+    repo_blocks = re.split(r"(?=^### )", gh_section, flags=re.MULTILINE)
+    for block in repo_blocks:
+        block = block.strip()
+        if not block.startswith("###"):
+            continue
+        # Repo name from "### RepoName  ★0  |  TypeScript"
+        header_m = re.match(r"^### ([\w\-. ]+?)\s+[★|]", block)
+        if not header_m:
+            continue
+        repo_name = header_m.group(1).strip()
+
+        # Collect all tech mentioned in this block
+        # Strategy: find lists under "Tech Stack", "Built With", "Frontend", "Backend",
+        # "Languages", "Technologies" headings, and also the "|  Language" from the header.
+        techs: list[str] = []
+
+        # Language from header line (e.g. "| TypeScript")
+        lang_m = re.search(r"\|\s+([A-Za-z+#]+)\s", block.split("\n")[0])
+        if lang_m:
+            techs.append(lang_m.group(1))
+
+        # Scan README for **Tech** or - **Tech** or "React" "TypeScript" etc.
+        # Look for bold items like **React**, **TypeScript**, **Vite**
+        bold_techs = re.findall(r"\*\*([A-Za-z][A-Za-z0-9.# +\-]{1,30})\*\*", block)
+        techs.extend(bold_techs)
+
+        # Look for "Tech Stack" or "Frontend" section lines  (e.g. "- React with TypeScript")
+        tech_lines = re.findall(
+            r"(?i)(?:tech stack|frontend|backend|built with|technologies)[^\n]*\n((?:[-*•]\s+[^\n]+\n?)+)",
+            block,
+        )
+        for chunk in tech_lines:
+            items = re.findall(r"[-*•]\s+([^\n]+)", chunk)
+            techs.extend(items)
+
+        if techs:
+            # Deduplicate preserving order
+            seen: set[str] = set()
+            unique_techs = []
+            for t in techs:
+                t_clean = t.strip().strip("*").strip()
+                if t_clean and t_clean.lower() not in seen and len(t_clean) < 40:
+                    seen.add(t_clean.lower())
+                    unique_techs.append(t_clean)
+            tech_map[repo_name.lower()] = ", ".join(unique_techs[:12])
+
+    return tech_map
+
+
+def _enrich_resume_with_github_tech(resume_text: str) -> str:
+    """
+    For each project in the TECHNICAL PROJECTS section of the imported resume,
+    look up whether a GitHub repo exists with a matching name. If so, append
+    an explicit 'Full tech stack from GitHub: ...' annotation right after the
+    project's tech line so the AI cannot miss it.
+
+    This fixes the case where the uploaded PDF says "Python, Docker, AWS"
+    for a full-stack project that actually has React/TypeScript in GitHub.
+    """
+    tech_map = _extract_github_tech_map(resume_text)
+    if not tech_map:
+        return resume_text
+
+    # Find TECHNICAL PROJECTS section in the resume body
+    tech_proj_re = re.compile(
+        r"(?i)(technical projects?)\s*\n",
+    )
+    m = tech_proj_re.search(resume_text)
+    if not m:
+        return resume_text
+
+    proj_section_start = m.end()
+    proj_section_text = resume_text[proj_section_start:]
+
+    def _best_match(title: str) -> str | None:
+        """Return the best-matching key in tech_map for this project title."""
+        title_lower = title.lower()
+        # Exact substring match first
+        for key in tech_map:
+            if key in title_lower or title_lower in key:
+                return key
+        # Word overlap: split title into words, check if ≥2 words appear in any key
+        title_words = set(re.findall(r"[a-z0-9]+", title_lower))
+        best_key, best_score = None, 0
+        for key in tech_map:
+            key_words = set(re.findall(r"[a-z0-9]+", key))
+            score = len(title_words & key_words)
+            if score > best_score:
+                best_score, best_key = score, key
+        return best_key if best_score >= 1 else None
+
+    # Find project title lines: lines followed by a date (e.g. "Jan 2026 – Present")
+    proj_title_re = re.compile(
+        r"^([A-Z][^\n]+?)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}",
+        re.MULTILINE,
+    )
+
+    enriched = proj_section_text
+    # Process replacements in reverse order to preserve offsets
+    for pm in reversed(list(proj_title_re.finditer(proj_section_text))):
+        title = pm.group(1)
+        matched_key = _best_match(title)
+        if not matched_key:
+            continue
+        gh_tech = tech_map[matched_key]
+        # Find the tech line right after this title (next non-empty line)
+        after_title = proj_section_text[pm.end():]
+        tech_line_m = re.search(r"\n([^\n•\-*]+)\n", after_title)
+        if tech_line_m:
+            insert_pos = pm.end() + tech_line_m.end() - 1  # after the tech line's newline
+            annotation = f"\n  [GitHub full stack: {gh_tech}]"
+            enriched = enriched[:insert_pos] + annotation + enriched[insert_pos:]
+
+    return resume_text[:proj_section_start] + enriched
+
+
 def _recommended_course_hints(job: Job) -> list[str]:
     """Return role-aware SFU coursework hints to use when education details are sparse."""
     role = (job.role or "").lower()
@@ -508,12 +640,19 @@ class AITailor:
         course_hints = _recommended_course_hints(job)
         course_hints_str = "\n".join(f"- {c}" for c in course_hints)
 
+        # Enrich TECHNICAL PROJECTS in the resume text with full tech stack from GitHub.
+        # This annotates each project inline so the AI cannot miss React/TS/etc. that
+        # are absent from the uploaded PDF's tech line but present in the GitHub README.
+        resume_text = _enrich_resume_with_github_tech(resume_text)
+
         # 2. System prompt — strict hallucination guard + XYZ format + keyword injection
         system_prompt = (
             "You are an elite Resume Tailor and ATS Optimizer for software engineering roles.\n\n"
             "IRON RULE — NO HALLUCINATIONS: You are ABSOLUTELY FORBIDDEN from inventing any project, "
             "tool, company, date, GPA, metric, or technology that does not appear in the "
-            "CANDIDATE'S CONTEXT below. Every claim must be traceable to the context text.\n\n"
+            "CANDIDATE'S CONTEXT below. Every claim must be traceable to the context text. "
+            "NOTE: Lines starting with '[GitHub full stack: ...]' are verified annotations — "
+            "you MAY use those technologies in bullets and the 'tech' field for that project.\n\n"
             "PROJECT SOURCES RULE (relevance-first):\n"
             "Use the following priority order to find the 3 best-matching projects:\n"
             "  PRIORITY 1 — '## GitHub Projects:' section: each '### RepoName' entry is a real project. "
