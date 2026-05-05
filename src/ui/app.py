@@ -401,7 +401,7 @@ async def _run_discovery(repo, role: str, location: str, count: int, user_id: in
     return all_ids
 
 
-def _parse_ledger_for_pdf(ledger_path: str) -> dict:
+def _parse_ledger_for_pdf(ledger_path: str = "", content: str | None = None) -> dict:
     """
     Parses the imported resume section of ledger.md into structured
     education and experience lists for the PDF template.
@@ -409,12 +409,15 @@ def _parse_ledger_for_pdf(ledger_path: str) -> dict:
     Returns a dict with keys: education, experience.
     Each education entry: {institution, degree, start_date, end_date, location, bullets}
     Each experience entry: {title, company, start_date, end_date, location, bullets}
+
+    Pass ``content`` directly to skip the disk read when the caller already
+    holds the ledger string (e.g. freshly fetched from the DB).
     """
     import re
-    if not os.path.exists(ledger_path):
-        return {"education": [], "experience": []}
-
-    content = open(ledger_path, encoding="utf-8").read()
+    if content is None:
+        if not ledger_path or not os.path.exists(ledger_path):
+            return {"education": [], "experience": []}
+        content = open(ledger_path, encoding="utf-8").read()
     marker = "## Imported Resume:"
     text = content.split(marker, 1)[1] if marker in content else content
     lines = [l.rstrip() for l in text.splitlines()]
@@ -784,12 +787,7 @@ if "resume_text_cache" not in st.session_state:
     from src.core.ai import _parse_ledger_as_resume
     _ledger_content_for_cache = run_async(st.session_state.repo.get_ledger(_USER_ID))
     if _ledger_content_for_cache:
-        import tempfile as _tmpfile
-        _tmp = _tmpfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
-        _tmp.write(_ledger_content_for_cache)
-        _tmp.close()
-        st.session_state.resume_text_cache = _parse_ledger_as_resume(_tmp.name)
-        import os as _os; _os.unlink(_tmp.name)
+        st.session_state.resume_text_cache = _parse_ledger_as_resume(content=_ledger_content_for_cache)
     else:
         # Fallback to file for first-run before any ledger saved
         _lp_match = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
@@ -802,11 +800,16 @@ if "resume_text_cache" not in st.session_state:
 with st.sidebar:
     st.markdown('<div class="nav-logo">⚡ Titan<span>Swarm</span></div>', unsafe_allow_html=True)
 
-    total        = run_async(repo.count_all(user_id=_USER_ID))
-    n_pending    = len(run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID)))
-    n_submitted  = len(run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID)))
-    n_discovered = len(run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=_USER_ID)))
-    n_interview  = len(run_async(repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=_USER_ID)))
+    async def _sidebar_counts():
+        _tot, _pend, _subm, _disc, _intv = await asyncio.gather(
+            repo.count_all(user_id=_USER_ID),
+            repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID),
+            repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID),
+            repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=_USER_ID),
+            repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=_USER_ID),
+        )
+        return _tot, len(_pend), len(_subm), len(_disc), len(_intv)
+    total, n_pending, n_submitted, n_discovered, n_interview = run_async(_sidebar_counts())
 
     st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
     st.markdown('<div class="nav-section-label">Menu</div>', unsafe_allow_html=True)
@@ -989,8 +992,13 @@ if nav == "Job Feed":
     # download button remains visible immediately after tailoring (before the
     # user navigates away). Filter to feed_job_ids when a search has been done.
     _feed_ids: list[str] = st.session_state.get("feed_job_ids", [])
-    _all_repo_jobs = (run_async(repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=_USER_ID)) +
-                      run_async(repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID)))
+    async def _fetch_feed():
+        _disc, _pend = await asyncio.gather(
+            repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=_USER_ID),
+            repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID),
+        )
+        return _disc + _pend
+    _all_repo_jobs = run_async(_fetch_feed())
     if _feed_ids:
         _id_set = set(_feed_ids)
         _raw_jobs = [j for j in _all_repo_jobs if j.id in _id_set]
@@ -1000,11 +1008,16 @@ if nav == "Job Feed":
     all_jobs = filter_by_date(all_jobs, _date_opt)
     all_jobs = search_jobs(all_jobs, _search_q)
 
-    # Compute match scores for sorting/display
+    # Compute match scores — cached by job-list fingerprint to avoid re-embedding on every rerun
     _resume_cache = st.session_state.resume_text_cache
-    _match_scores: dict[str, int] = {}
-    for _j in all_jobs:
-        _match_scores[_j.id] = compute_match_score(_resume_cache, _j.job_description, st_model)
+    _all_ids_key = frozenset(j.id for j in _all_repo_jobs)
+    if st.session_state.get("_match_score_key") != _all_ids_key:
+        st.session_state["_match_score_cache"] = {
+            j.id: compute_match_score(_resume_cache, j.job_description, st_model)
+            for j in _all_repo_jobs
+        }
+        st.session_state["_match_score_key"] = _all_ids_key
+    _match_scores = st.session_state["_match_score_cache"]
 
     # Apply sort
     if _sort_opt == "Best Match":
@@ -1088,12 +1101,7 @@ if nav == "Job Feed":
                                 result: TailoredApplication = run_async(tailor.tailor_application(job))
                                 # Load ledger from DB for this user; fall back to file if empty
                                 if _db_ledger_content:
-                                    import tempfile as _pdf_tmp
-                                    _ltmp = _pdf_tmp.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
-                                    _ltmp.write(_db_ledger_content)
-                                    _ltmp.close()
-                                    _structured = _parse_ledger_for_pdf(_ltmp.name)
-                                    import os as _os2; _os2.unlink(_ltmp.name)
+                                    _structured = _parse_ledger_for_pdf(content=_db_ledger_content)
                                 else:
                                     _fallback_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
                                     _structured = _parse_ledger_for_pdf(_fallback_path)
@@ -1390,8 +1398,8 @@ elif nav == "My Applications":
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    # ── Submitted list with download ──
-    submitted_jobs = run_async(repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID))
+    # ── Submitted list with download ── (reuse jobs already fetched by the gather above)
+    submitted_jobs = _app
     if submitted_jobs:
         st.markdown("### Applied — Download Resumes")
         for job in submitted_jobs:
@@ -1673,6 +1681,7 @@ elif nav == "Preferences":
                             _lm_gh.build_index()
                             st.session_state.tailor.ledger = _lm_gh
                         st.session_state.pop("resume_text_cache", None)
+                        st.session_state.pop("_match_score_key", None)
                         st.toast("GitHub projects refreshed!", icon="🐙")
                         st.rerun()
                     else:
@@ -1746,8 +1755,9 @@ elif nav == "Preferences":
                             _lm_new.model = st.session_state.st_model
                             _lm_new.build_index()
                             st.session_state.tailor.ledger = _lm_new
-                        # Clear match-score cache so Job Feed reflects the new resume immediately
+                        # Clear caches so Job Feed reflects the new resume immediately
                         st.session_state.pop("resume_text_cache", None)
+                        st.session_state.pop("_match_score_key", None)
                         st.toast(f"{uploaded.name} ingested ✓  Profile fields auto-filled above.", icon="✅")
                         st.rerun()
                 except Exception as e:
@@ -1899,6 +1909,7 @@ elif nav == "Preferences":
                     _lm_m.build_index()
                     st.session_state.tailor.ledger = _lm_m
                 st.session_state.pop("resume_text_cache", None)
+                st.session_state.pop("_match_score_key", None)
             st.toast("Education & Experience saved!", icon="🎓")
         else:
             st.error("Save failed — please try again.")
