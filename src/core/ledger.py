@@ -1,4 +1,5 @@
 import os
+import re
 from typing import List
 import faiss
 import numpy as np
@@ -11,6 +12,9 @@ class LedgerManager:
         self.index = None
         self.chunks = []
         self.model = None
+        self._last_mtime: float = 0.0          # mtime of last successful build_index()
+        self._query_cache: dict[str, np.ndarray] = {}  # LRU query embedding cache
+        self._query_cache_max: int = 32
 
     @classmethod
     def from_content(cls, content: str, db_path: str = ":memory:") -> "LedgerManager":
@@ -36,7 +40,12 @@ class LedgerManager:
     def build_index(self) -> None:
         if not os.path.exists(self.ledger_path):
             raise FileNotFoundError(f"Ledger file not found at {self.ledger_path}")
-            
+
+        # Skip rebuild if file hasn't changed since last build
+        current_mtime = os.path.getmtime(self.ledger_path)
+        if current_mtime == self._last_mtime and self.index is not None:
+            return
+
         with open(self.ledger_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
@@ -56,6 +65,8 @@ class LedgerManager:
         dimension = embeddings.shape[1]
         self.index = faiss.IndexFlatL2(dimension) # L2 Distance metric
         self.index.add(np.array(embeddings).astype('float32'))
+        self._last_mtime = current_mtime
+        self._query_cache.clear()  # invalidate stale query embeddings
 
     def write_github_section(self, github_text: str) -> None:
         """
@@ -76,7 +87,6 @@ class LedgerManager:
 
         if _MARKER in content:
             # Replace from the marker to the next top-level section (##) or end of file
-            import re
             content = re.sub(
                 rf"{re.escape(_MARKER)}.*?(?=\n## |\Z)",
                 new_block.rstrip(),
@@ -93,11 +103,13 @@ class LedgerManager:
     def search_facts(self, query: str, top_k: int = 3) -> List[str]:
         if self.index is None:
             raise RuntimeError("Cannot search facts before building the index. Call build_index() first.")
-            
-        self._lazy_load_model()
-        
-        # Convert the user's question into the same mathematical space
-        query_vector = self.model.encode([query])
+
+        # Cache query embeddings — encoding is expensive; same query string = same vector
+        if query not in self._query_cache:
+            if len(self._query_cache) >= self._query_cache_max:
+                self._query_cache.pop(next(iter(self._query_cache)))
+            self._query_cache[query] = self.model.encode([query])
+        query_vector = self._query_cache[query]
         
         # Ask FAISS for the closest facts
         distances, indices = self.index.search(np.array(query_vector).astype('float32'), min(top_k, len(self.chunks)))
