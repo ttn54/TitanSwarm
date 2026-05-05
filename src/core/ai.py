@@ -214,7 +214,7 @@ def _load_dotenv():
 _load_dotenv()
 
 
-def _parse_ledger_as_resume(ledger_path: str) -> str:
+def _parse_ledger_as_resume(ledger_path: str = "", *, content: str | None = None) -> str:
     """
     Reads ledger.md and returns the AI context for tailoring.
 
@@ -226,10 +226,14 @@ def _parse_ledger_as_resume(ledger_path: str) -> str:
     Layout handled:
       Case A (normal): base → ## Imported Resume: → ## GitHub Projects:
       Case B (new user does refresh first): base → ## GitHub Projects: → ## Imported Resume:
+
+    Pass ``content`` directly to skip the disk read (e.g. when the caller
+    already holds the ledger string from a DB fetch).
     """
-    if not os.path.exists(ledger_path):
-        return ""
-    content = open(ledger_path, encoding="utf-8").read()
+    if content is None:
+        if not ledger_path or not os.path.exists(ledger_path):
+            return ""
+        content = open(ledger_path, encoding="utf-8").read()
 
     _RESUME_MARKER = "## Imported Resume:"
     _GITHUB_MARKER = "## GitHub Projects:"
