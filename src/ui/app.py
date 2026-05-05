@@ -19,6 +19,7 @@ from src.core.ledger import LedgerManager
 from src.core.ai import AITailor
 from src.core.pdf_generator import PDFGenerator
 from src.core.env_writer import upsert_env_vars, read_env_var
+import re
 from typing import List, Optional
 
 
@@ -62,6 +63,35 @@ def search_jobs(jobs: List[Job], query: Optional[str]) -> List[Job]:
 
 
 _DATE_WINDOWS = {"Last 7 days": 7, "Last 14 days": 14, "Last 30 days": 30}
+
+# Pre-compiled regex constants — defined once at module load
+_SECTION_RE = re.compile(
+    r'^(EDUCATION|TECHNICAL PROJECTS?|TECHNICAL SKILLS?|WORK EXPERIENCE|EXPERIENCE|PROJECTS?)$',
+    re.IGNORECASE,
+)
+_DATE_RE = re.compile(
+    r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}'
+    r'|\b\d{4}\b'
+    r'|\u2013\s*Present'
+)
+_FNAME_SANITIZE_RE = re.compile(r'[^\w\s-]')
+
+# Module-level lookup tables — avoid rebuilding on every function call
+_STATUS_BADGE_MAP = {
+    JobStatus.PENDING_REVIEW: ("pending",   "Pending Review"),
+    JobStatus.SUBMITTED:      ("submitted", "Applied"),
+    JobStatus.DISCOVERED:     ("new",       "New"),
+    JobStatus.REJECTED:       ("rejected",  "Rejected"),
+    JobStatus.PROCESSING:     ("pending",   "Processing"),
+    JobStatus.INTERVIEW:      ("interview", "Interview"),
+}
+_AVATAR_COLORS = (
+    "linear-gradient(135deg,#6366f1,#8b5cf6)",
+    "linear-gradient(135deg,#0ea5e9,#6366f1)",
+    "linear-gradient(135deg,#f59e0b,#ef4444)",
+    "linear-gradient(135deg,#10b981,#0ea5e9)",
+    "linear-gradient(135deg,#8b5cf6,#ec4899)",
+)
 
 
 def filter_by_date(jobs: List[Job], window: Optional[str]) -> List[Job]:
@@ -293,27 +323,12 @@ def run_async(coro):
     return asyncio.run(coro)
 
 def badge(status: JobStatus) -> str:
-    m = {
-        JobStatus.PENDING_REVIEW: ("pending",   "Pending Review"),
-        JobStatus.SUBMITTED:      ("submitted", "Applied"),
-        JobStatus.DISCOVERED:     ("new",       "New"),
-        JobStatus.REJECTED:       ("rejected",  "Rejected"),
-        JobStatus.PROCESSING:     ("pending",   "Processing"),
-        JobStatus.INTERVIEW:      ("interview", "Interview"),
-    }
-    cls, label = m.get(status, ("new", status.value))
+    cls, label = _STATUS_BADGE_MAP.get(status, ("new", status.value))
     return f'<span class="badge badge-{cls}">{label}</span>'
 
 def avatar_html(company: str, size: int = 44, radius: int = 12) -> str:
     initials = "".join(w[0] for w in company.split()[:2]).upper()
-    colors = [
-        "linear-gradient(135deg,#6366f1,#8b5cf6)",
-        "linear-gradient(135deg,#0ea5e9,#6366f1)",
-        "linear-gradient(135deg,#f59e0b,#ef4444)",
-        "linear-gradient(135deg,#10b981,#0ea5e9)",
-        "linear-gradient(135deg,#8b5cf6,#ec4899)",
-    ]
-    bg = colors[sum(ord(c) for c in company) % len(colors)]
+    bg = _AVATAR_COLORS[sum(ord(c) for c in company) % len(_AVATAR_COLORS)]
     return (f'<div style="width:{size}px;height:{size}px;border-radius:{radius}px;'
             f'background:{bg};color:#fff;font-size:{size//2.5:.0f}px;font-weight:800;'
             f'display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
@@ -455,7 +470,7 @@ def _parse_ledger_for_pdf(ledger_path: str = "", content: str | None = None) -> 
             i += 1
             continue
 
-        if SECTION_RE.match(line):
+        if _SECTION_RE.match(line):
             flush(current_entry, current_section)
             current_entry = None
             current_section = line.upper()
@@ -466,7 +481,7 @@ def _parse_ledger_for_pdf(ledger_path: str = "", content: str | None = None) -> 
             # Supported formats:
             # 1) "Degree Name Sep 2022 - Present" + next line institution
             # 2) "Degree Name" + next line "Institution Sep 2022 - Present"
-            date_m = DATE_RE.search(line)
+            date_m = _DATE_RE.search(line)
             if not line.startswith("•") and date_m:
                 flush(current_entry, current_section)
                 date_str = line[date_m.start():].strip()
@@ -475,7 +490,7 @@ def _parse_ledger_for_pdf(ledger_path: str = "", content: str | None = None) -> 
                 j = i + 1
                 while j < len(lines) and not lines[j].strip():
                     j += 1
-                if j < len(lines) and not lines[j].strip().startswith("•") and not SECTION_RE.match(lines[j].strip()):
+                if j < len(lines) and not lines[j].strip().startswith("•") and not _SECTION_RE.match(lines[j].strip()):
                     institution = lines[j].strip()
                     i = j
                 parts = re.split(r'[–—-]', date_str)
@@ -496,8 +511,8 @@ def _parse_ledger_for_pdf(ledger_path: str = "", content: str | None = None) -> 
                     j += 1
                 if j < len(lines):
                     next_line = lines[j].strip()
-                    next_date_m = DATE_RE.search(next_line)
-                    if next_date_m and not next_line.startswith("•") and not SECTION_RE.match(next_line):
+                    next_date_m = _DATE_RE.search(next_line)
+                    if next_date_m and not next_line.startswith("•") and not _SECTION_RE.match(next_line):
                         flush(current_entry, current_section)
                         degree = line
                         institution = next_line[:next_date_m.start()].strip()
@@ -518,7 +533,7 @@ def _parse_ledger_for_pdf(ledger_path: str = "", content: str | None = None) -> 
                 current_entry["bullets"].append(line.lstrip("• ").strip())
 
         elif current_section in ("WORK EXPERIENCE", "EXPERIENCE"):
-            date_m = DATE_RE.search(line)
+            date_m = _DATE_RE.search(line)
             if date_m and not line.startswith("•"):
                 flush(current_entry, current_section)
                 date_str   = line[date_m.start():].strip()
@@ -1096,10 +1111,9 @@ if nav == "Job Feed":
                     if err_key in st.session_state:
                         st.error(st.session_state.pop(err_key))
 
-                    import re as _re
                     import base64 as _b64
-                    _dl_fname = (f"{_re.sub(r'[^\\w\\s-]', '', job.company).strip().replace(' ', '_')}_"
-                                 f"{_re.sub(r'[^\\w\\s-]', '', job.role).strip().replace(' ', '_')}_Resume.pdf")
+                    _dl_fname = (f"{_FNAME_SANITIZE_RE.sub('', job.company).strip().replace(' ', '_')}_"
+                                 f"{_FNAME_SANITIZE_RE.sub('', job.role).strip().replace(' ', '_')}_Resume.pdf")
 
                     if st.button("📄 Tailor Resume", key=f"apply_{job.id}", type="primary", use_container_width=True):
                         if tailor is None:
