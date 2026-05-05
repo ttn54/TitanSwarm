@@ -792,6 +792,8 @@ if "resume_text_cache" not in st.session_state:
         # Fallback to file for first-run before any ledger saved
         _lp_match = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
         st.session_state.resume_text_cache = _parse_ledger_as_resume(_lp_match) if os.path.exists(_lp_match) else ""
+    # Also cache raw ledger so other pages can read it without an extra DB round-trip
+    st.session_state["_ledger_raw"] = _ledger_content_for_cache or ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -876,7 +878,7 @@ if nav == "Job Feed":
     with hc:
         st.markdown('<div class="main-header">Job Feed</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="main-subheader">Showing opportunities for <strong>{st.session_state.pref_role}</strong> · {st.session_state.pref_location}</div>', unsafe_allow_html=True)
-        _feed_ledger = run_async(st.session_state.repo.get_ledger(_USER_ID))
+        _feed_ledger = st.session_state.get("_ledger_raw", "")
         if _feed_ledger and "## Imported Resume:" in _feed_ledger:
             _feed_resume_name = _feed_ledger.split("## Imported Resume:")[1].split("\n")[0].strip()
             st.caption(f"📄 Resume loaded: {_feed_resume_name}")
@@ -1019,6 +1021,18 @@ if nav == "Job Feed":
         st.session_state["_match_score_key"] = _all_ids_key
     _match_scores = st.session_state["_match_score_cache"]
 
+    # Batch-load all tailored results in one parallel round-trip (cached by same job fingerprint)
+    if st.session_state.get("_tailored_cache_key") != _all_ids_key:
+        async def _batch_tailored(_jobs):
+            _results = await asyncio.gather(
+                *[repo.get_tailored_result(j.id, user_id=_USER_ID) for j in _jobs],
+                return_exceptions=True,
+            )
+            return {j.id: (r if r and not isinstance(r, Exception) else None)
+                    for j, r in zip(_jobs, _results)}
+        st.session_state["_tailored_results_cache"] = run_async(_batch_tailored(_all_repo_jobs))
+        st.session_state["_tailored_cache_key"] = _all_ids_key
+
     # Apply sort
     if _sort_opt == "Best Match":
         all_jobs.sort(key=lambda j: _match_scores.get(j.id, 0), reverse=True)
@@ -1082,6 +1096,11 @@ if nav == "Job Feed":
                     if err_key in st.session_state:
                         st.error(st.session_state.pop(err_key))
 
+                    import re as _re
+                    import base64 as _b64
+                    _dl_fname = (f"{_re.sub(r'[^\\w\\s-]', '', job.company).strip().replace(' ', '_')}_"
+                                 f"{_re.sub(r'[^\\w\\s-]', '', job.role).strip().replace(' ', '_')}_Resume.pdf")
+
                     if st.button("📄 Tailor Resume", key=f"apply_{job.id}", type="primary", use_container_width=True):
                         if tailor is None:
                             st.session_state[err_key] = (
@@ -1095,7 +1114,7 @@ if nav == "Job Feed":
                                 "Visit the job URL, copy the full description, and paste it into the job card to enable tailoring."
                             )
                             st.rerun()
-                        _db_ledger_content = run_async(repo.get_ledger(_USER_ID))
+                        _db_ledger_content = st.session_state.get("_ledger_raw", "")
                         with st.spinner(f"Tailoring resume for {job.company}… (may retry if Gemini is busy)"):
                             try:
                                 result: TailoredApplication = run_async(tailor.tailor_application(job))
@@ -1121,11 +1140,7 @@ if nav == "Job Feed":
                                     "education":  _merge_structured(_pi.education, _structured["education"]),
                                     "experience": _merge_structured(_pi.experience, _structured["experience"]),
                                 }
-                                # Sanitize company + role for a readable filename
-                                import re as _re
-                                _safe = lambda s: _re.sub(r'[^\w\s-]', '', s).strip().replace(' ', '_')
-                                _fname = f"{_safe(job.company)}_{_safe(job.role)}_Resume.pdf"
-                                output_path = os.path.join("output", _fname)
+                                output_path = os.path.join("output", _dl_fname)
                                 os.makedirs("output", exist_ok=True)
                                 run_async(pdf_gen.generate_resume_pdf(user_ledger, result, output_path=output_path))
                                 with open(output_path, "rb") as fh:
@@ -1138,6 +1153,8 @@ if nav == "Job Feed":
                                 run_async(repo.save_tailored_result(
                                     job.id, result.model_dump_json(), pdf_bytes, user_id=_USER_ID
                                 ))
+                                st.session_state.pop("_tailored_results_cache", None)
+                                st.session_state.pop("_tailored_cache_key", None)
                                 run_async(repo.update_status(job.id, JobStatus.PENDING_REVIEW, user_id=_USER_ID))
                                 st.toast(f"Resume for {job.company} is ready!", icon="✅")
                                 st.rerun()
@@ -1149,10 +1166,7 @@ if nav == "Job Feed":
                     # Show download button if PDF is already generated for this job
                     # Load from DB if not in session state (page was refreshed)
                     if f"pdf_{job.id}" not in st.session_state:
-                        try:
-                            _db_result = run_async(repo.get_tailored_result(job.id, user_id=_USER_ID))
-                        except Exception:
-                            _db_result = None
+                        _db_result = st.session_state.get("_tailored_results_cache", {}).get(job.id)
                         if _db_result:
                             _db_ai_json, _db_pdf, _db_cl = _db_result
                             st.session_state[f"pdf_{job.id}"] = _db_pdf
@@ -1165,10 +1179,6 @@ if nav == "Job Feed":
                             except Exception:
                                 pass
                     if f"pdf_{job.id}" in st.session_state:
-                        import re as _re2
-                        import base64 as _b64
-                        _s2 = lambda s: _re2.sub(r'[^\w\s-]', '', s).strip().replace(' ', '_')
-                        _dl_fname = f"{_s2(job.company)}_{_s2(job.role)}_Resume.pdf"
                         _b64_pdf = _b64.b64encode(st.session_state[f"pdf_{job.id}"]).decode()
                         _auto = st.session_state.pop(f"autodownload_{job.id}", False)
                         # Render an invisible anchor; auto-click it once after tailoring
@@ -1682,6 +1692,8 @@ elif nav == "Preferences":
                             st.session_state.tailor.ledger = _lm_gh
                         st.session_state.pop("resume_text_cache", None)
                         st.session_state.pop("_match_score_key", None)
+                        st.session_state.pop("_ledger_raw", None)
+                        st.session_state.pop("_tailored_cache_key", None)
                         st.toast("GitHub projects refreshed!", icon="🐙")
                         st.rerun()
                     else:
@@ -1758,6 +1770,8 @@ elif nav == "Preferences":
                         # Clear caches so Job Feed reflects the new resume immediately
                         st.session_state.pop("resume_text_cache", None)
                         st.session_state.pop("_match_score_key", None)
+                        st.session_state.pop("_ledger_raw", None)
+                        st.session_state.pop("_tailored_cache_key", None)
                         st.toast(f"{uploaded.name} ingested ✓  Profile fields auto-filled above.", icon="✅")
                         st.rerun()
                 except Exception as e:
@@ -1910,6 +1924,8 @@ elif nav == "Preferences":
                     st.session_state.tailor.ledger = _lm_m
                 st.session_state.pop("resume_text_cache", None)
                 st.session_state.pop("_match_score_key", None)
+                st.session_state.pop("_ledger_raw", None)
+                st.session_state.pop("_tailored_cache_key", None)
             st.toast("Education & Experience saved!", icon="🎓")
         else:
             st.error("Save failed — please try again.")
