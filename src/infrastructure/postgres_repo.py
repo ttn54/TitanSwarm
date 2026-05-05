@@ -160,23 +160,31 @@ class PostgresRepository(JobRepository):
             ("tailored_results", "pdf_bytes",         "BLOB"),
             ("tailored_results", "cover_letter_text", "TEXT"),
         ]
+        # Group columns by table so we run PRAGMA table_info once per table,
+        # not once per column (was 13 queries, now 3).
+        from collections import defaultdict
+        cols_by_table: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        for table, col, col_def in new_columns:
+            cols_by_table[table].append((col, col_def))
+
         async with self.engine.begin() as conn:
-            for table, col, col_def in new_columns:
+            for table, col_specs in cols_by_table.items():
                 try:
-                    existing = await conn.run_sync(
+                    existing: list[str] = await conn.run_sync(
                         lambda sync_conn, t=table: [
                             row[1] for row in sync_conn.execute(
                                 __import__('sqlalchemy').text(f"PRAGMA table_info({t})")
                             ).fetchall()
                         ]
                     )
-                    if col not in existing:
-                        await conn.execute(
-                            __import__('sqlalchemy').text(
-                                f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"
+                    for col, col_def in col_specs:
+                        if col not in existing:
+                            await conn.execute(
+                                __import__('sqlalchemy').text(
+                                    f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"
+                                )
                             )
-                        )
-                        logger.info(f"Migration: added column '{col}' to '{table}'")
+                            logger.info(f"Migration: added column '{col}' to '{table}'")
                 except Exception:
                     pass  # table doesn't exist yet — create_all will handle it
 
@@ -473,16 +481,13 @@ class PostgresRepository(JobRepository):
 
     async def delete_jobs_by_status(self, status: JobStatus, user_id: int = 1) -> int:
         """Deletes all jobs with the given status for a user. Returns count deleted."""
+        from sqlalchemy import delete as sa_delete
         async with self.async_session() as session:
             result = await session.execute(
-                select(JobModel).where(JobModel.status == status, JobModel.user_id == user_id)
+                sa_delete(JobModel).where(JobModel.status == status, JobModel.user_id == user_id)
             )
-            jobs = result.scalars().all()
-            count = len(jobs)
-            for job in jobs:
-                await session.delete(job)
             await session.commit()
-            return count
+            return result.rowcount
 
     # ── UserProfile persistence ──
 
