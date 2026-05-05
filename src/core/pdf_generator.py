@@ -5,9 +5,12 @@ from jinja2 import Environment, FileSystemLoader
 from src.infrastructure.browser import BrowserManager
 from src.core.models import Job, TailoredApplication, CoverLetterResult, UserProfile
 
+_MD_BOLD_RE = re.compile(r'\*\*(.*?)\*\*')
+
+
 def _md_bold(text: str) -> str:
     """Convert **word** markdown bold to HTML <strong> tags for PDF rendering."""
-    return re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', str(text))
+    return _MD_BOLD_RE.sub(r'<strong>\1</strong>', str(text))
 
 
 def compose_cover_letter_html(
