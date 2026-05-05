@@ -142,25 +142,30 @@ class SourcingEngine:
         _role_words = [w for w in _search_words
                        if w not in _INTERN_QUALS and w not in _SENIORITY_QUALS and len(w) >= 4]
 
-        def _title_matches(title_val) -> bool:
-            if not title_val or (isinstance(title_val, float) and pd.isna(title_val)):
-                return False
-            t = str(title_val).lower()
-            # Rule 1: intern-type guard
-            if _has_intern and not any(q in t for q in _INTERN_QUALS):
-                return False
-            # Rule 2: seniority guard
-            if _search_seniority and not any(s in t for s in _search_seniority):
-                return False
-            # Rule 3: at least one core role word must appear
-            if _role_words and not any(w in t for w in _role_words):
-                return False
-            return True
-
-        jobs_df = jobs_df[jobs_df["title"].apply(_title_matches)]
+        # Vectorized title filter — str.contains is C-level, avoids a Python
+        # callback on every row that .apply(_title_matches) would require.
+        _title_lower = jobs_df["title"].fillna("").astype(str).str.lower()
+        _title_mask = _title_lower.str.len() > 0
+        if _has_intern:
+            _title_mask &= _title_lower.str.contains(
+                "|".join(re.escape(q) for q in _INTERN_QUALS), na=False)
+        if _search_seniority:
+            _title_mask &= _title_lower.str.contains(
+                "|".join(re.escape(s) for s in _search_seniority), na=False)
+        if _role_words:
+            _title_mask &= _title_lower.str.contains(
+                "|".join(re.escape(w) for w in _role_words), na=False)
+        jobs_df = jobs_df[_title_mask]
         if jobs_df.empty:
             logger.info("No jobs matched title filter after scraping.")
             return 0, []
+
+        def _safe_float(val) -> float | None:
+            try:
+                f = float(val)
+                return None if pd.isna(f) else f
+            except (TypeError, ValueError):
+                return None
 
         saved_count = 0
         all_found_ids: list[str] = []
@@ -211,13 +216,6 @@ class SourcingEngine:
                 job_date = str(date_raw)
             else:
                 job_date = ""
-
-            def _safe_float(val) -> float | None:
-                try:
-                    f = float(val)
-                    return None if pd.isna(f) else f
-                except (TypeError, ValueError):
-                    return None
 
             salary_min      = _safe_float(row.get("min_amount"))
             salary_max      = _safe_float(row.get("max_amount"))
