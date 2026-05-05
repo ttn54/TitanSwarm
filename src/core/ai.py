@@ -89,18 +89,20 @@ def _filter_missing_skills(missing: list[str], resume_text: str) -> list[str]:
     return [s for s in missing if not _in_context(s)]
 
 
+_PLACEHOLDER_PATTERNS = (
+    "[x]",
+    "[y]",
+    "[z]",
+    "accomplished [x] by doing [y], resulting in [z]",
+    "accomplished x by doing y, resulting in z",
+)
+
+
 def _contains_placeholder_bullet(text: str) -> bool:
     t = (text or "").strip().lower()
     if not t:
         return False
-    patterns = [
-        "[x]",
-        "[y]",
-        "[z]",
-        "accomplished [x] by doing [y], resulting in [z]",
-        "accomplished x by doing y, resulting in z",
-    ]
-    return any(p in t for p in patterns)
+    return any(p in t for p in _PLACEHOLDER_PATTERNS)
 
 
 def _has_placeholder_bullets(result: TailoredApplication) -> bool:
@@ -124,27 +126,35 @@ _TECH_TITLE_KEYWORDS = {
     "machine learning", "deep learning", "ai ", "ml ",
 }
 
+# Pre-compiled regex for faster title matching — sorts longer patterns first to
+# prevent short patterns (e.g. 'ai') from shadowing longer ones ('ai ')
+_TECH_TITLE_RE = re.compile(
+    r"(?:" + "|".join(re.escape(kw.strip()) for kw in sorted(_TECH_TITLE_KEYWORDS, key=len, reverse=True)) + r")",
+)
+
+
 def _is_work_relevant(experience: list) -> bool:
     """Return True if any work experience entry has a tech/engineering title."""
     for exp in experience:
-        title_lower = (exp.title or "").lower()
-        if any(kw in title_lower for kw in _TECH_TITLE_KEYWORDS):
+        if _TECH_TITLE_RE.search((exp.title or "").lower()):
             return True
     return False
+
+
+_GENERIC_EDU_RE = re.compile(
+    r"studied core computer science principles"
+    r"|including data structures, algorithms"
+    r"|coursework relevant to"
+    r"|strong foundation in"
+    r"|developed strong",
+)
 
 
 def _is_generic_education_bullet(text: str) -> bool:
     t = (text or "").strip().lower()
     if not t:
         return True
-    generic_phrases = [
-        "studied core computer science principles",
-        "including data structures, algorithms",
-        "coursework relevant to",
-        "strong foundation in",
-        "developed strong",
-    ]
-    if any(p in t for p in generic_phrases):
+    if _GENERIC_EDU_RE.search(t):
         return True
     # Very short, generic bullets are usually low-signal filler.
     return len(t.split()) < 8
@@ -471,6 +481,15 @@ def _recommended_course_hints(job: Job) -> list[str]:
     ]
 
 
+# Fallback models tried in order when the primary model returns 503.
+# Deduplication against the primary model happens at call time.
+_FALLBACK_CASCADE = (
+    "gemini-3.1-flash-lite-preview",  # 2.5s, 500 RPD
+    "gemma-4-31b-it",                 # 16s, 1.5K RPD, unlimited TPM
+    "gemma-3-27b-it",                 # 22s, 14.4K RPD — last resort
+)
+
+
 async def _gemini_call_with_retry(loop, client, model: str, contents, config):
     """
     Call the Gemini API with model-cascade fallback on 503 (overloaded).
@@ -485,15 +504,8 @@ async def _gemini_call_with_retry(loop, client, model: str, contents, config):
     from google.genai import types as _gtypes
     from google.genai.errors import ServerError
 
-    _model_cascade = [
-        model,
-        "gemini-3.1-flash-lite-preview",  # 2.5s, 500 RPD
-        "gemma-4-31b-it",                 # 16s, 1.5K RPD, unlimited TPM
-        "gemma-3-27b-it",                  # 22s, 14.4K RPD — last resort
-    ]
-    # Deduplicate while preserving order
     seen: set = set()
-    cascade = [m for m in _model_cascade if not (m in seen or seen.add(m))]
+    cascade = [m for m in (model, *_FALLBACK_CASCADE) if not (m in seen or seen.add(m))]
 
     last_exc = None
     for candidate in cascade:
@@ -532,6 +544,153 @@ async def _gemini_call_with_retry(loop, client, model: str, contents, config):
                 break   # non-503 or second attempt failed → next model
     raise last_exc
 
+
+_JSON_SCHEMA = (
+    '{\n'
+    '  "job_id": "<string>",\n'
+    '  "skills_to_highlight": {\n'
+    '    // CRITICAL: Category NAMES must reflect THIS JD domain, not be generic.\n'
+    '    // Frontend JD → use "Frontend" not "Backend & Systems".\n'
+    '    // Backend JD → use "Backend & Systems". Full-stack → both.\n'
+    '    // Examples: "Frontend", "Backend & Systems", "Languages", "Infrastructure & DevOps",\n'
+    '    //           "AI & Data", "Testing & Validation", "Cloud & Infrastructure"\n'
+    '    // Only include categories containing skills the JD actually requires.\n'
+    '    "<JD-relevant category>": ["skill1", "skill2"],\n'
+    '    "<another JD-relevant category>": ["skill3"]\n'
+    '  },\n'
+    '  "tailored_projects": [\n'
+    '    {\n'
+    '      "title": "<project name from resume>",\n'
+    '      "tech": "<4-5 techs from THIS project most relevant to THIS JD — not all techs>",\n'
+    '      "date": "<date range>",\n'
+    '      "project_type": "<Personal Project or Collaborative Project>",\n'
+    '      "keyword_overlap_count": <integer — count of JD keywords matched by this project>,\n'
+    '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>", "<XYZ bullet 3 — add if relevant>", "<XYZ bullet 4 — add if highly relevant>"]\n'
+    '    }\n'
+    '  ],\n'
+    '  "tailored_experience": [\n'
+    '    {\n'
+    '      "title": "<exact job title from context>",\n'
+    '      "company": "<exact company name>",\n'
+    '      "start_date": "<start date as in context>",\n'
+    '      "end_date": "<end date or Present>",\n'
+    '      "location": "<city or Remote>",\n'
+    '      "bullets": ["<XYZ bullet 1 with JD keyword>", "<XYZ bullet 2>"]\n'
+    '    }\n'
+    '  ],\n'
+    '  "tailored_education": [\n'
+    '    {\n'
+    '      "degree": "<exact degree/program text from context>",\n'
+    '      "institution": "<exact school/institution from context>",\n'
+    '      "start_date": "<start date as in context>",\n'
+    '      "end_date": "<end date or Present>",\n'
+    '      "location": "<city or empty>",\n'
+    '      "bullets": ["<optional fact-based education bullet>"]\n'
+    '    }\n'
+    '  ],\n'
+    '  "q_and_a_responses": {"<question>": "<answer>"},\n'
+    '  "missing_skills": ["<exact tool/language from JD that is NOT in candidate context>"]\n'
+    '}'
+)
+
+_SYSTEM_PROMPT_TEMPLATE = (
+    "You are an expert ATS Resume Tailor for software engineering roles. "
+    "You receive a candidate context and a job description, and return a TailoredApplication JSON.\n\n"
+
+    "══════════════════════════════════════════════════════\n"
+    "RULE 0 — ZERO HALLUCINATIONS (ABSOLUTE, NO EXCEPTIONS)\n"
+    "══════════════════════════════════════════════════════\n"
+    "Every fact in every bullet must be directly traceable to CANDIDATE'S CONTEXT. "
+    "Forbidden: invented tools, companies, metrics, dates, GPA, or technologies. "
+    "The tech line shown per project in 'TECHNICAL PROJECTS' has been pre-validated against "
+    "the GitHub source code — treat it as ground truth. Technologies in GitHub README excerpts "
+    "are also verified and MAY be used in bullets.\n\n"
+
+    "══════════════════════════════════════════════════════\n"
+    "RULE 1 — PROJECT SELECTION (DO THIS FIRST, IN ORDER)\n"
+    "══════════════════════════════════════════════════════\n"
+    "STEP A — Extract 10 specific tech keywords from the JD (tools, languages, frameworks, patterns).\n\n"
+    "STEP B — Score EVERY project from BOTH sources:\n"
+    "  • '## GitHub Projects:' — each ### heading is a real project; use its README for facts.\n"
+    "  • 'TECHNICAL PROJECTS' in the imported resume — supplement if GitHub has fewer than 3.\n"
+    "For each project count how many STEP A keywords appear in its tech line/README/description.\n"
+    "CRITICAL: The tech line shown in TECHNICAL PROJECTS is AUTHORITATIVE and GitHub-verified —\n"
+    "use it directly for scoring, do NOT substitute it with anything else.\n\n"
+    "STEP C — Apply domain boundary scoring. Identify the JD's PRIMARY domain, then:\n\n"
+    "  JD domain = FRONTEND (React / TypeScript / Vue / Angular / GraphQL is the core ask):\n"
+    "    ✅ COUNTS as overlap: React, TypeScript, JavaScript, GraphQL, Redux, Zustand, Recoil,\n"
+    "       CSS, SCSS, Tailwind, HTML, Next.js, Vite, Vue, Angular, Svelte, component architecture,\n"
+    "       hooks, state management, accessibility, XSS, CSRF, frontend security, JWT (client auth),\n"
+    "       REST API (only when JD explicitly pairs it with the frontend stack).\n"
+    "    ❌ SCORES ZERO for a Frontend JD (no matter how impressive):\n"
+    "       Python, Go, Java, C, C++, Rust, Streamlit, FastAPI, Django, Flask, Express,\n"
+    "       Raft, consensus algorithm, distributed database, gRPC, Asyncio, HTTPX, scraping,\n"
+    "       LangChain, FAISS, Gemini, OpenAI, Pandas, RAG, vector store, AI/LLM internals,\n"
+    "       Docker, Kubernetes, Terraform (unless JD explicitly mentions them).\n"
+    "    Concrete example: React/TypeScript SPA = 5-8 overlap. Python/Streamlit AI tool = 0-1.\n"
+    "       Go distributed DB = 0. These are not opinions — apply them as hard rules.\n\n"
+    "  JD domain = BACKEND / SYSTEMS (APIs, DB, distributed, microservices is the core ask):\n"
+    "    ✅ COUNTS: Python, Go, Node.js, Java, SQL, PostgreSQL, REST, gRPC, Kafka, Redis,\n"
+    "       Docker, AWS, Kubernetes, concurrency, throughput, fault tolerance, WAL, Raft.\n"
+    "    ❌ SCORES ZERO: React, Vue, CSS, HTML (unless JD says fullstack).\n\n"
+    "  JD domain = FULLSTACK / GENERAL: count all tech keyword matches normally.\n\n"
+    "STEP D — Rank all projects by score. Select top 3. Projects with 0 overlap = excluded.\n"
+    "STEP E — Set keyword_overlap_count on each selected project to its actual count.\n\n"
+
+    "══════════════════════════════════════════════════════\n"
+    "RULE 2 — TECH FIELD PER PROJECT\n"
+    "══════════════════════════════════════════════════════\n"
+    "List ONLY the 4-6 technologies from that project with the highest overlap with THIS JD. "
+    "Use the tech line shown in TECHNICAL PROJECTS (it is GitHub-verified and authoritative). "
+    "Also consult the GitHub README excerpt for additional confirmed technologies.\n\n"
+
+    "══════════════════════════════════════════════════════\n"
+    "RULE 3 — BULLET WRITING\n"
+    "══════════════════════════════════════════════════════\n"
+    "Format every bullet: 'Accomplished [X] by [Y], resulting in [Z].' — lead with outcome/impact.\n\n"
+    "BAD:  'Engineered a WAL with fsync durability.'\n"
+    "GOOD: 'Eliminated data-loss risk by engineering a crash-safe WAL with atomic fsync snapshots,\n"
+    "       guaranteeing zero corruption across all integration test scenarios.'\n\n"
+    "Domain alignment — mandatory per JD type:\n"
+    "  FRONTEND JD → emphasise: component architecture, TypeScript interfaces/generics, React hooks,\n"
+    "    state management (Redux/Zustand/Context), UI performance (lazy loading, memoisation),\n"
+    "    client-side API integration, XSS/CSRF prevention, responsive/accessible design.\n"
+    "    NEVER lead with Docker, server throughput, database schemas, or deployment pipelines.\n"
+    "  BACKEND JD → emphasise: API design, throughput, latency, database schema, concurrency,\n"
+    "    service reliability, error handling, observability.\n"
+    "  DISTRIBUTED SYSTEMS JD → emphasise: consensus, fault tolerance, replication, CAP theorem,\n"
+    "    durability guarantees, leader election, recovery.\n\n"
+    "ATS keyword injection: embed ≥4 exact phrases from the JD verbatim. "
+    "Wrap each in **double asterisks** so they bold in the PDF.\n\n"
+    "Bullet count by rank (enforce exactly): #1 project = 4 bullets, #2 = 4, #3 = 3.\n"
+    "No placeholder bullets ([X], [Y], [Z]). Every bullet must be concrete and factual.\n\n"
+
+    "══════════════════════════════════════════════════════\n"
+    "RULE 4 — SKILLS\n"
+    "══════════════════════════════════════════════════════\n"
+    "skills_to_highlight:\n"
+    "  • Output EXACTLY 3-4 categories. Always include 'Languages'.\n"
+    "  • ONLY skills explicitly in CANDIDATE'S CONTEXT. Never add from the JD.\n"
+    "  • JD-only skills go to missing_skills instead.\n"
+    "  Category taxonomy (pick closest match, merge if under 4 categories):\n"
+    "    Frontend | Backend & Systems | Mobile Development | Infrastructure & DevOps |\n"
+    "    AI & Machine Learning | Data Engineering | Distributed Systems | Cloud & Services |\n"
+    "    Security & Networking | Testing & Validation | Databases | Languages\n\n"
+    "missing_skills: every specific tool/language the JD requires that is NOT in candidate context.\n"
+    "  Be granular (e.g. 'Kubernetes', 'Cassandra') — never vague ('DevOps skills').\n\n"
+
+    "══════════════════════════════════════════════════════\n"
+    "RULE 5 — EXPERIENCE & EDUCATION\n"
+    "══════════════════════════════════════════════════════\n"
+    "tailored_experience: rewrite bullets XYZ-style, inject top 3-5 JD keywords truthfully. "
+    "Preserve title, company, dates, location exactly. Output [] if no WORK EXPERIENCE in context.\n\n"
+    "tailored_education: exact degree/institution wording from context. Preserve all dates. "
+    "No invented GPA, awards, or certifications. Output [] if no EDUCATION in context.\n"
+    "You may add 1-3 bullets from the approved coursework hints below when education is sparse:\n"
+    "  {course_hints_str}\n\n"
+
+    "CANDIDATE'S CONTEXT:\n{resume_text}"
+)
 
 
 class AITailor:
@@ -578,57 +737,9 @@ class AITailor:
     async def _call_gemini(self, system_prompt: str, user_prompt: str) -> TailoredApplication:
         from google.genai import types
 
-        json_schema = (
-            '{\n'
-            '  "job_id": "<string>",\n'
-            '  "skills_to_highlight": {\n'
-            '    // CRITICAL: Category NAMES must reflect THIS JD domain, not be generic.\n'
-            '    // Frontend JD → use "Frontend" not "Backend & Systems".\n'
-            '    // Backend JD → use "Backend & Systems". Full-stack → both.\n'
-            '    // Examples: "Frontend", "Backend & Systems", "Languages", "Infrastructure & DevOps",\n'
-            '    //           "AI & Data", "Testing & Validation", "Cloud & Infrastructure"\n'
-            '    // Only include categories containing skills the JD actually requires.\n'
-            '    "<JD-relevant category>": ["skill1", "skill2"],\n'
-            '    "<another JD-relevant category>": ["skill3"]\n'
-            '  },\n'
-            '  "tailored_projects": [\n'
-            '    {\n'
-            '      "title": "<project name from resume>",\n'
-            '      "tech": "<4-5 techs from THIS project most relevant to THIS JD — not all techs>",\n'
-            '      "date": "<date range>",\n'
-            '      "project_type": "<Personal Project or Collaborative Project>",\n'
-            '      "keyword_overlap_count": <integer — count of JD keywords matched by this project>,\n'
-            '      "bullets": ["<XYZ bullet 1>", "<XYZ bullet 2>", "<XYZ bullet 3 — add if relevant>", "<XYZ bullet 4 — add if highly relevant>"]\n'
-            '    }\n'
-            '  ],\n'
-            '  "tailored_experience": [\n'
-            '    {\n'
-            '      "title": "<exact job title from context>",\n'
-            '      "company": "<exact company name>",\n'
-            '      "start_date": "<start date as in context>",\n'
-            '      "end_date": "<end date or Present>",\n'
-            '      "location": "<city or Remote>",\n'
-            '      "bullets": ["<XYZ bullet 1 with JD keyword>", "<XYZ bullet 2>"]\n'
-            '    }\n'
-            '  ],\n'
-            '  "tailored_education": [\n'
-            '    {\n'
-            '      "degree": "<exact degree/program text from context>",\n'
-            '      "institution": "<exact school/institution from context>",\n'
-            '      "start_date": "<start date as in context>",\n'
-            '      "end_date": "<end date or Present>",\n'
-            '      "location": "<city or empty>",\n'
-            '      "bullets": ["<optional fact-based education bullet>"]\n'
-            '    }\n'
-            '  ],\n'
-            '  "q_and_a_responses": {"<question>": "<answer>"},\n'
-            '  "missing_skills": ["<exact tool/language from JD that is NOT in candidate context>"]\n'
-            '}'
-        )
-
         full_prompt = (
             f"{system_prompt}\n\n{user_prompt}\n\n"
-            f"Respond with ONLY valid JSON matching this exact structure — no markdown fences, no explanation:\n{json_schema}"
+            f"Respond with ONLY valid JSON matching this exact structure — no markdown fences, no explanation:\n{_JSON_SCHEMA}"
         )
 
         loop = asyncio.get_event_loop()
@@ -695,104 +806,10 @@ class AITailor:
         # are absent from the uploaded PDF's tech line but present in the GitHub README.
         resume_text = _enrich_resume_with_github_tech(resume_text)
 
-        # 2. System prompt — authority-first structure, no redundancy with user prompt
-        system_prompt = (
-            "You are an expert ATS Resume Tailor for software engineering roles. "
-            "You receive a candidate context and a job description, and return a TailoredApplication JSON.\n\n"
-
-            "══════════════════════════════════════════════════════\n"
-            "RULE 0 — ZERO HALLUCINATIONS (ABSOLUTE, NO EXCEPTIONS)\n"
-            "══════════════════════════════════════════════════════\n"
-            "Every fact in every bullet must be directly traceable to CANDIDATE'S CONTEXT. "
-            "Forbidden: invented tools, companies, metrics, dates, GPA, or technologies. "
-            "The tech line shown per project in 'TECHNICAL PROJECTS' has been pre-validated against "
-            "the GitHub source code — treat it as ground truth. Technologies in GitHub README excerpts "
-            "are also verified and MAY be used in bullets.\n\n"
-
-            "══════════════════════════════════════════════════════\n"
-            "RULE 1 — PROJECT SELECTION (DO THIS FIRST, IN ORDER)\n"
-            "══════════════════════════════════════════════════════\n"
-            "STEP A — Extract 10 specific tech keywords from the JD (tools, languages, frameworks, patterns).\n\n"
-            "STEP B — Score EVERY project from BOTH sources:\n"
-            "  • '## GitHub Projects:' — each ### heading is a real project; use its README for facts.\n"
-            "  • 'TECHNICAL PROJECTS' in the imported resume — supplement if GitHub has fewer than 3.\n"
-            "For each project count how many STEP A keywords appear in its tech line/README/description.\n"
-            "CRITICAL: The tech line shown in TECHNICAL PROJECTS is AUTHORITATIVE and GitHub-verified —\n"
-            "use it directly for scoring, do NOT substitute it with anything else.\n\n"
-            "STEP C — Apply domain boundary scoring. Identify the JD's PRIMARY domain, then:\n\n"
-            "  JD domain = FRONTEND (React / TypeScript / Vue / Angular / GraphQL is the core ask):\n"
-            "    ✅ COUNTS as overlap: React, TypeScript, JavaScript, GraphQL, Redux, Zustand, Recoil,\n"
-            "       CSS, SCSS, Tailwind, HTML, Next.js, Vite, Vue, Angular, Svelte, component architecture,\n"
-            "       hooks, state management, accessibility, XSS, CSRF, frontend security, JWT (client auth),\n"
-            "       REST API (only when JD explicitly pairs it with the frontend stack).\n"
-            "    ❌ SCORES ZERO for a Frontend JD (no matter how impressive):\n"
-            "       Python, Go, Java, C, C++, Rust, Streamlit, FastAPI, Django, Flask, Express,\n"
-            "       Raft, consensus algorithm, distributed database, gRPC, Asyncio, HTTPX, scraping,\n"
-            "       LangChain, FAISS, Gemini, OpenAI, Pandas, RAG, vector store, AI/LLM internals,\n"
-            "       Docker, Kubernetes, Terraform (unless JD explicitly mentions them).\n"
-            "    Concrete example: React/TypeScript SPA = 5-8 overlap. Python/Streamlit AI tool = 0-1.\n"
-            "       Go distributed DB = 0. These are not opinions — apply them as hard rules.\n\n"
-            "  JD domain = BACKEND / SYSTEMS (APIs, DB, distributed, microservices is the core ask):\n"
-            "    ✅ COUNTS: Python, Go, Node.js, Java, SQL, PostgreSQL, REST, gRPC, Kafka, Redis,\n"
-            "       Docker, AWS, Kubernetes, concurrency, throughput, fault tolerance, WAL, Raft.\n"
-            "    ❌ SCORES ZERO: React, Vue, CSS, HTML (unless JD says fullstack).\n\n"
-            "  JD domain = FULLSTACK / GENERAL: count all tech keyword matches normally.\n\n"
-            "STEP D — Rank all projects by score. Select top 3. Projects with 0 overlap = excluded.\n"
-            "STEP E — Set keyword_overlap_count on each selected project to its actual count.\n\n"
-
-            "══════════════════════════════════════════════════════\n"
-            "RULE 2 — TECH FIELD PER PROJECT\n"
-            "══════════════════════════════════════════════════════\n"
-            "List ONLY the 4-6 technologies from that project with the highest overlap with THIS JD. "
-            "Use the tech line shown in TECHNICAL PROJECTS (it is GitHub-verified and authoritative). "
-            "Also consult the GitHub README excerpt for additional confirmed technologies.\n\n"
-
-            "══════════════════════════════════════════════════════\n"
-            "RULE 3 — BULLET WRITING\n"
-            "══════════════════════════════════════════════════════\n"
-            "Format every bullet: 'Accomplished [X] by [Y], resulting in [Z].' — lead with outcome/impact.\n\n"
-            "BAD:  'Engineered a WAL with fsync durability.'\n"
-            "GOOD: 'Eliminated data-loss risk by engineering a crash-safe WAL with atomic fsync snapshots,\n"
-            "       guaranteeing zero corruption across all integration test scenarios.'\n\n"
-            "Domain alignment — mandatory per JD type:\n"
-            "  FRONTEND JD → emphasise: component architecture, TypeScript interfaces/generics, React hooks,\n"
-            "    state management (Redux/Zustand/Context), UI performance (lazy loading, memoisation),\n"
-            "    client-side API integration, XSS/CSRF prevention, responsive/accessible design.\n"
-            "    NEVER lead with Docker, server throughput, database schemas, or deployment pipelines.\n"
-            "  BACKEND JD → emphasise: API design, throughput, latency, database schema, concurrency,\n"
-            "    service reliability, error handling, observability.\n"
-            "  DISTRIBUTED SYSTEMS JD → emphasise: consensus, fault tolerance, replication, CAP theorem,\n"
-            "    durability guarantees, leader election, recovery.\n\n"
-            "ATS keyword injection: embed ≥4 exact phrases from the JD verbatim. "
-            "Wrap each in **double asterisks** so they bold in the PDF.\n\n"
-            "Bullet count by rank (enforce exactly): #1 project = 4 bullets, #2 = 4, #3 = 3.\n"
-            "No placeholder bullets ([X], [Y], [Z]). Every bullet must be concrete and factual.\n\n"
-
-            "══════════════════════════════════════════════════════\n"
-            "RULE 4 — SKILLS\n"
-            "══════════════════════════════════════════════════════\n"
-            "skills_to_highlight:\n"
-            "  • Output EXACTLY 3-4 categories. Always include 'Languages'.\n"
-            "  • ONLY skills explicitly in CANDIDATE'S CONTEXT. Never add from the JD.\n"
-            "  • JD-only skills go to missing_skills instead.\n"
-            "  Category taxonomy (pick closest match, merge if under 4 categories):\n"
-            "    Frontend | Backend & Systems | Mobile Development | Infrastructure & DevOps |\n"
-            "    AI & Machine Learning | Data Engineering | Distributed Systems | Cloud & Services |\n"
-            "    Security & Networking | Testing & Validation | Databases | Languages\n\n"
-            "missing_skills: every specific tool/language the JD requires that is NOT in candidate context.\n"
-            "  Be granular (e.g. 'Kubernetes', 'Cassandra') — never vague ('DevOps skills').\n\n"
-
-            "══════════════════════════════════════════════════════\n"
-            "RULE 5 — EXPERIENCE & EDUCATION\n"
-            "══════════════════════════════════════════════════════\n"
-            "tailored_experience: rewrite bullets XYZ-style, inject top 3-5 JD keywords truthfully. "
-            "Preserve title, company, dates, location exactly. Output [] if no WORK EXPERIENCE in context.\n\n"
-            "tailored_education: exact degree/institution wording from context. Preserve all dates. "
-            "No invented GPA, awards, or certifications. Output [] if no EDUCATION in context.\n"
-            "You may add 1-3 bullets from the approved coursework hints below when education is sparse:\n"
-            f"  {course_hints_str}\n\n"
-
-            f"CANDIDATE'S CONTEXT:\n{resume_text}"
+        # 2. System prompt — static template with only course hints + resume as dynamic parts
+        system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
+            course_hints_str=course_hints_str,
+            resume_text=resume_text,
         )
 
         # 3. User prompt — data only, no rule repetition
