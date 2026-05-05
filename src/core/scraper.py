@@ -39,12 +39,16 @@ class UniversalScraper(BaseScraper):
             print("No jobs found from aggregators.")
             return found_jobs
 
+        # Batch dedup: run all existence checks in parallel instead of N sequential queries
+        all_ids = [str(row.get('id', '')) for _, row in jobs_df.iterrows()]
+        existing_checks = await asyncio.gather(*[self.repository.get_job(jid) for jid in all_ids])
+        existing_ids = {jid for jid, ex in zip(all_ids, existing_checks) if ex is not None}
+
         for index, row in jobs_df.iterrows():
             job_id = str(row.get('id', ''))
-            
-            # Deduplication
-            existing = await self.repository.get_job(job_id)
-            if existing:
+
+            # Deduplication — already checked in batch above
+            if job_id in existing_ids:
                 continue
                 
             try:
