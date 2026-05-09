@@ -56,7 +56,6 @@ RUN python -m playwright install chromium --with-deps
 
 # ── Application source ────────────────────────────────────────────────────────
 COPY src/ ./src/
-COPY templates/ ./templates/
 COPY data/ ./data/
 
 # Runtime directories (overridden by volume mounts in docker-compose.yml)

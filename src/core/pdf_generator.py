@@ -133,7 +133,9 @@ def compose_cover_letter_html(
     return html
 
 class PDFGenerator:
-    def __init__(self, template_dir: str = "templates"):
+    def __init__(self, template_dir: str | None = None):
+        if template_dir is None:
+            template_dir = os.path.join(os.path.dirname(__file__), "templates")
         self.env = Environment(loader=FileSystemLoader(template_dir))
         self.env.filters['mdbold'] = _md_bold
     
