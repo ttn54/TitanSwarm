@@ -3,7 +3,7 @@ import asyncio
 from datetime import date, timedelta
 from src.ui.mock_repo import MockUIRepository
 from src.core.models import Job, JobStatus
-from src.ui.app import filter_by_date
+from src.ui.components import filter_by_date
 
 @pytest.mark.asyncio
 async def test_mock_ui_repo_initialization_and_filtering():

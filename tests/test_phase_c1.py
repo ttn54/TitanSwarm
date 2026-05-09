@@ -40,7 +40,7 @@ class TestFilterChips:
         )
 
     def test_filter_all_returns_everything(self):
-        from src.ui.app import filter_jobs
+        from src.ui.components import filter_jobs
         jobs = [
             self._make_job("SWE Intern", "Remote internship"),
             self._make_job("Backend Engineer", "Full-time on-site"),
@@ -48,7 +48,7 @@ class TestFilterChips:
         assert len(filter_jobs(jobs, "All")) == 2
 
     def test_filter_remote(self):
-        from src.ui.app import filter_jobs
+        from src.ui.components import filter_jobs
         jobs = [
             self._make_job("SWE Intern", "This is a remote position"),
             self._make_job("Backend Engineer", "On-site in NYC"),
@@ -58,7 +58,7 @@ class TestFilterChips:
         assert result[0].role == "SWE Intern"
 
     def test_filter_internship(self):
-        from src.ui.app import filter_jobs
+        from src.ui.components import filter_jobs
         jobs = [
             self._make_job("SWE Intern", "Summer program"),
             self._make_job("Internship: ML", "Join our ML team"),
@@ -68,7 +68,7 @@ class TestFilterChips:
         assert len(result) == 2
 
     def test_filter_fulltime(self):
-        from src.ui.app import filter_jobs
+        from src.ui.components import filter_jobs
         jobs = [
             self._make_job("SWE", "This is a full-time position"),
             self._make_job("SWE", "Full time role available"),
@@ -78,7 +78,7 @@ class TestFilterChips:
         assert len(result) == 2
 
     def test_filter_coop(self):
-        from src.ui.app import filter_jobs
+        from src.ui.components import filter_jobs
         jobs = [
             self._make_job("SWE Co-op", "8 month co-op at Google"),
             self._make_job("SWE Coop", "Standard coop term"),
@@ -88,7 +88,7 @@ class TestFilterChips:
         assert len(result) == 2
 
     def test_filter_none_returns_all(self):
-        from src.ui.app import filter_jobs
+        from src.ui.components import filter_jobs
         jobs = [self._make_job("SWE", "whatever")]
         assert len(filter_jobs(jobs, None)) == 1
 
@@ -98,7 +98,7 @@ class TestFilterChips:
 # ═════════════════════════════════════════════════════════════════════════════
 class TestProfileCompletion:
     def test_full_profile_is_100_percent(self):
-        from src.ui.app import profile_completion
+        from src.ui.components import profile_completion
         pf = UserProfile(
             name="Zen",
             email="z@sfu.ca",
@@ -110,7 +110,7 @@ class TestProfileCompletion:
         assert profile_completion(pf) == 1.0
 
     def test_missing_website_is_not_100(self):
-        from src.ui.app import profile_completion
+        from src.ui.components import profile_completion
         pf = UserProfile(
             name="Zen",
             email="z@sfu.ca",
@@ -125,7 +125,7 @@ class TestProfileCompletion:
         assert abs(pct - 5 / 6) < 0.01
 
     def test_empty_profile_is_zero(self):
-        from src.ui.app import profile_completion
+        from src.ui.components import profile_completion
         pf = UserProfile()
         assert profile_completion(pf) == 0.0
 

@@ -127,7 +127,7 @@ class TestSearchJobs:
         )
 
     def test_search_by_company(self):
-        from src.ui.app import search_jobs
+        from src.ui.components import search_jobs
         jobs = [
             self._make_job("Google", "SWE Intern"),
             self._make_job("Meta", "Backend Engineer"),
@@ -137,7 +137,7 @@ class TestSearchJobs:
         assert len(result) == 2
 
     def test_search_by_role(self):
-        from src.ui.app import search_jobs
+        from src.ui.components import search_jobs
         jobs = [
             self._make_job("Google", "SWE Intern"),
             self._make_job("Meta", "SWE Intern"),
@@ -147,12 +147,12 @@ class TestSearchJobs:
         assert len(result) == 2
 
     def test_empty_search_returns_all(self):
-        from src.ui.app import search_jobs
+        from src.ui.components import search_jobs
         jobs = [self._make_job("Google", "SWE")]
         assert len(search_jobs(jobs, "")) == 1
         assert len(search_jobs(jobs, None)) == 1
 
     def test_no_match_returns_empty(self):
-        from src.ui.app import search_jobs
+        from src.ui.components import search_jobs
         jobs = [self._make_job("Google", "SWE")]
         assert len(search_jobs(jobs, "zzzzz")) == 0

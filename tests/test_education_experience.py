@@ -4,9 +4,9 @@ Tests for the manual Education & Work Experience feature.
 Covers:
   1. UserProfile has an `education` field (list of dicts) — not just `experience`
   2. PostgresRepository round-trips education data (save → get)
-  3. _build_manual_ledger_section() produces parser-compatible EDUCATION /
+  3. build_manual_ledger_section() produces parser-compatible EDUCATION /
      WORK EXPERIENCE text blocks
-  4. _merge_structured() correctly merges profile entries with ledger-parsed entries,
+  4. merge_structured() correctly merges profile entries with ledger-parsed entries,
      preferring profile data
   5. website_enricher prompt handles entries without dates (Part A)
 """
@@ -96,7 +96,7 @@ async def test_repository_saves_and_returns_education():
 
 def test_build_manual_ledger_section_produces_education_block():
     """The helper must produce a parseable EDUCATION block with dates."""
-    from src.ui.app import _build_manual_ledger_section
+    from src.ui.components import build_manual_ledger_section
 
     edu = [
         {
@@ -108,7 +108,7 @@ def test_build_manual_ledger_section_produces_education_block():
             "bullets": [],
         }
     ]
-    text = _build_manual_ledger_section(education=edu, experience=[])
+    text = build_manual_ledger_section(education=edu, experience=[])
     assert "EDUCATION" in text
     assert "BSc Computer Science" in text
     assert "Sep 2022" in text
@@ -116,7 +116,7 @@ def test_build_manual_ledger_section_produces_education_block():
 
 def test_build_manual_ledger_section_produces_experience_block():
     """The helper must produce a parseable WORK EXPERIENCE block with bullets."""
-    from src.ui.app import _build_manual_ledger_section
+    from src.ui.components import build_manual_ledger_section
 
     exp = [
         {
@@ -128,7 +128,7 @@ def test_build_manual_ledger_section_produces_experience_block():
             "bullets": ["Built enterprise AI integrations.", "Led a team of 3 engineers."],
         }
     ]
-    text = _build_manual_ledger_section(education=[], experience=exp)
+    text = build_manual_ledger_section(education=[], experience=exp)
     assert "WORK EXPERIENCE" in text
     assert "Founding Software Engineer" in text
     assert "Futurity" in text
@@ -137,15 +137,15 @@ def test_build_manual_ledger_section_produces_experience_block():
 
 def test_build_manual_ledger_section_empty_inputs():
     """Empty lists produce an empty string — no phantom sections."""
-    from src.ui.app import _build_manual_ledger_section
+    from src.ui.components import build_manual_ledger_section
 
-    text = _build_manual_ledger_section(education=[], experience=[])
+    text = build_manual_ledger_section(education=[], experience=[])
     assert text.strip() == ""
 
 
 def test_parse_ledger_two_line_education_keeps_degree_and_institution(tmp_path):
     """2-line education format should parse degree from line 1 and school/date from line 2."""
-    from src.ui.app import _parse_ledger_for_pdf
+    from src.ui.components import parse_ledger_for_pdf
 
     ledger_text = (
         "EDUCATION\n"
@@ -155,7 +155,7 @@ def test_parse_ledger_two_line_education_keeps_degree_and_institution(tmp_path):
     p = tmp_path / "ledger.md"
     p.write_text(ledger_text, encoding="utf-8")
 
-    parsed = _parse_ledger_for_pdf(str(p))
+    parsed = parse_ledger_for_pdf(str(p))
     assert len(parsed["education"]) == 1
     assert parsed["education"][0]["degree"] == "Computing Science"
     assert parsed["education"][0]["institution"] == "SFU"
@@ -169,28 +169,28 @@ def test_parse_ledger_two_line_education_keeps_degree_and_institution(tmp_path):
 
 def test_merge_structured_profile_takes_priority():
     """Profile entries must come first; ledger entries fill gaps only."""
-    from src.ui.app import _merge_structured
+    from src.ui.components import merge_structured
 
     profile_edu = [{"degree": "BSc CS", "institution": "UBC", "start_date": "Sep 2022",
                     "end_date": "Apr 2026", "location": "", "bullets": []}]
     ledger_edu  = [{"degree": "BSc CS", "institution": "UBC", "start_date": "Sep 2022",
                     "end_date": "Apr 2026", "location": "", "bullets": []}]
 
-    result = _merge_structured(profile_edu, ledger_edu)
+    result = merge_structured(profile_edu, ledger_edu)
     # Should deduplicate — only one entry
     assert len(result) == 1
 
 
 def test_merge_structured_appends_ledger_extras():
     """Ledger entries not in profile should be appended."""
-    from src.ui.app import _merge_structured
+    from src.ui.components import merge_structured
 
     profile_edu = [{"degree": "BSc CS", "institution": "UBC", "start_date": "Sep 2022",
                     "end_date": "Apr 2026", "location": "", "bullets": []}]
     ledger_edu  = [{"degree": "Diploma, Web Dev", "institution": "BCIT", "start_date": "Jan 2021",
                     "end_date": "Dec 2021", "location": "", "bullets": []}]
 
-    result = _merge_structured(profile_edu, ledger_edu)
+    result = merge_structured(profile_edu, ledger_edu)
     assert len(result) == 2
 
 
