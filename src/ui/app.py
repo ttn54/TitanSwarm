@@ -577,8 +577,23 @@ def _parse_ledger_for_pdf(ledger_path: str = "", content: str | None = None) -> 
 # COOKIE AUTH HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 _COOKIE_NAME   = "ts_session"
-_COOKIE_SECRET = os.getenv("SESSION_SECRET", "titanswarm-secret-change-in-prod")
 _COOKIE_DAYS   = 30
+
+# SESSION_SECRET must be set in production.  If it is missing we generate a
+# random per-process secret and log a loud warning — sessions will not survive
+# restarts, but at least they cannot be forged with a well-known default.
+_cookie_secret_env = os.getenv("SESSION_SECRET", "")
+if _cookie_secret_env:
+    _COOKIE_SECRET: str = _cookie_secret_env
+else:
+    import secrets as _secrets
+    _COOKIE_SECRET = _secrets.token_hex(32)
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "SESSION_SECRET not set — using a random per-process secret. "
+        "All sessions will be invalidated on restart. "
+        "Set SESSION_SECRET in your .env for production."
+    )
 
 def _sign(payload: str) -> str:
     return hmac.new(_COOKIE_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
@@ -639,6 +654,55 @@ elif "user_id" not in st.session_state:
             st.session_state["user_id"], st.session_state["username"] = _restored
 
 # ─────────────────────────────────────────────────────────────────────────────
+# AUTH RATE LIMITER — simple in-memory tracker with exponential backoff
+# ─────────────────────────────────────────────────────────────────────────────
+import time as _time
+from collections import defaultdict as _defaultdict
+
+_MAX_ATTEMPTS = 5           # allow 5 failed attempts before throttling
+_WINDOW_SECS = 300          # 5-minute tracking window
+_BACKOFF_BASE = 2           # exponential: 2s, 4s, 8s, 16s, 32s
+
+class _AuthRateLimiter:
+    """Tracks failed login attempts per username per time window.
+
+    After _MAX_ATTEMPTS failures, imposes an exponentially-growing cooldown
+    (base _BACKOFF_BASE).  Successful login clears the record.
+
+    NOT thread-safe — Streamlit runs single-threaded per session, so this is
+    safe for its use case.  Replace with a Redis-backed limiter for multi-worker.
+    """
+    def __init__(self):
+        self._attempts: dict[str, list[float]] = _defaultdict(list)
+
+    def _prune(self, key: str, now: float) -> None:
+        cutoff = now - _WINDOW_SECS
+        self._attempts[key] = [t for t in self._attempts.get(key, []) if t > cutoff]
+
+    def check(self, username: str) -> tuple[bool, int]:
+        """Return (allowed, wait_seconds).  allowed=False means the user must wait."""
+        key = f"login:{username.lower().strip()}"
+        now = _time.time()
+        self._prune(key, now)
+        failures = len(self._attempts[key])
+        if failures < _MAX_ATTEMPTS:
+            return True, 0
+        # Exponential backoff: attempt #6 = 32s, #7 = 64s, cap at 5 min
+        wait = min(_BACKOFF_BASE ** (failures - _MAX_ATTEMPTS + 1), _WINDOW_SECS)
+        return False, int(wait)
+
+    def record_failure(self, username: str) -> None:
+        key = f"login:{username.lower().strip()}"
+        self._attempts[key].append(_time.time())
+
+    def clear(self, username: str) -> None:
+        key = f"login:{username.lower().strip()}"
+        self._attempts.pop(key, None)
+
+_AUTH_RATE_LIMITER = _AuthRateLimiter()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # AUTH GATE — must be satisfied before any other UI renders
 # ─────────────────────────────────────────────────────────────────────────────
 def _render_auth_page():
@@ -666,14 +730,21 @@ def _render_auth_page():
             if not username or not password:
                 st.error("Please enter both username and password.")
             else:
-                uid = run_async(st.session_state.repo.verify_user(username, password))
-                if uid is None:
-                    st.error("Invalid username or password.")
+                # Rate-limit check before touching the database
+                allowed, wait_sec = _AUTH_RATE_LIMITER.check(username)
+                if not allowed:
+                    st.error(f"Too many failed attempts. Please wait {wait_sec} seconds before trying again.")
                 else:
-                    st.session_state["user_id"] = uid
-                    st.session_state["username"] = username
-                    _set_session_cookie(uid, username)
-                    st.stop()
+                    uid = run_async(st.session_state.repo.verify_user(username, password))
+                    if uid is None:
+                        _AUTH_RATE_LIMITER.record_failure(username)
+                        st.error("Invalid username or password.")
+                    else:
+                        _AUTH_RATE_LIMITER.clear(username)
+                        st.session_state["user_id"] = uid
+                        st.session_state["username"] = username
+                        _set_session_cookie(uid, username)
+                        st.stop()
 
     with tab_register:
         with st.form("register_form"):
@@ -684,10 +755,14 @@ def _render_auth_page():
         if reg_submitted:
             if not new_username or not new_password:
                 st.error("Username and password are required.")
+            elif not re.match(r'^[a-zA-Z0-9_.-]{3,32}$', new_username):
+                st.error("Username must be 3–32 characters: letters, numbers, dots, hyphens, underscores only.")
             elif new_password != confirm_pw:
                 st.error("Passwords do not match.")
             elif len(new_password) < 8:
                 st.error("Password must be at least 8 characters.")
+            elif not re.search(r'[A-Z]', new_password) or not re.search(r'[0-9]', new_password):
+                st.error("Password must contain at least one uppercase letter and one number.")
             else:
                 try:
                     uid = run_async(st.session_state.repo.create_user(new_username, new_password))
