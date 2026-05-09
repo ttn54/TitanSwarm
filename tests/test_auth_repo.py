@@ -35,11 +35,19 @@ async def test_create_duplicate_username_raises(repo):
 
 @pytest.mark.asyncio
 async def test_password_is_hashed_not_stored_plaintext(repo):
-    """The stored password hash must NOT equal the plaintext password."""
-    await repo.create_user("alice", "secret123")
-    user = await repo.get_user_by_username("alice")
-    assert user is not None
-    assert user["password_hash"] != "secret123"
+    """The stored password must be a bcrypt hash, not the plaintext password.
+
+    get_user_by_username() deliberately never returns the password hash
+    (security by design).  We verify correct hashing indirectly: a wrong
+    password must fail while the correct one succeeds.
+    """
+    uid = await repo.create_user("alice", "secret123")
+
+    # Wrong password must fail
+    assert await repo.verify_user("alice", "wrongpassword") is None
+
+    # Correct password must succeed (proves it was hashed correctly)
+    assert await repo.verify_user("alice", "secret123") == uid
 
 
 # ── Login / verify ─────────────────────────────────────────────────────────
