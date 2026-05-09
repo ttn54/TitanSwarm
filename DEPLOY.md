@@ -143,3 +143,4 @@ ufw reload
    DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/titanswarm
    ```
 2. `docker compose restart` — no code changes needed.
+# Deploy test Fri May  8 18:15:07 PDT 2026
