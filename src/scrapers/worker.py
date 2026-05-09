@@ -94,21 +94,34 @@ class SourcingEngine:
         self.interval_hours = interval_hours
 
     async def _scrape_df(self, role: str, location: str, results_wanted: int) -> pd.DataFrame:
-        """Run the blocking JobSpy scrape in a thread pool and return the raw DataFrame."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         country = _detect_country_indeed(location)
+        sites = ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
 
-        def _scrape() -> pd.DataFrame:
+        def _scrape(site_list: list[str]) -> pd.DataFrame:
             return scrape_jobs(
-                site_name=["linkedin", "indeed"],
+                site_name=site_list,
                 search_term=role,
                 location=location,
                 results_wanted=results_wanted,
-                linkedin_fetch_description=False,
                 country_indeed=country,
             )
 
-        return await loop.run_in_executor(None, _scrape)
+        try:
+            return await loop.run_in_executor(None, _scrape, sites)
+        except Exception as e:
+            logger.warning("Multi-site scrape failed (%s), trying sites individually…", e)
+            frames: list[pd.DataFrame] = []
+            for site in sites:
+                try:
+                    df = await loop.run_in_executor(None, _scrape, [site])
+                    frames.append(df)
+                    logger.info("  ✓ %s returned %d results", site, len(df))
+                except Exception as site_err:
+                    logger.warning("  ✗ %s failed: %s", site, site_err)
+            if frames:
+                return pd.concat(frames, ignore_index=True)
+            return pd.DataFrame()
 
     async def run_sweep(self, role: str, location: str, results_wanted: int = 25, user_id: int = 1) -> tuple[int, list[str]]:
         """
@@ -170,10 +183,15 @@ class SourcingEngine:
         saved_count = 0
         all_found_ids: list[str] = []
         for _, row in jobs_df.iterrows():
-            job_id = str(row.get("id"))
-            if job_id == "None":
-                logger.warning("Skipping job with null ID from scraper.")
-                continue
+            job_id = str(row.get("id", ""))
+            if job_id in ("None", ""):
+                job_url = str(row.get("job_url", ""))
+                if job_url and job_url != "None":
+                    import hashlib
+                    job_id = "job_" + hashlib.md5(job_url.encode()).hexdigest()[:12]
+                else:
+                    logger.warning("Skipping job with null ID and URL from scraper.")
+                    continue
 
             all_found_ids.append(job_id)
 

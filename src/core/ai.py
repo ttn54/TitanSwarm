@@ -742,7 +742,7 @@ class AITailor:
             f"Respond with ONLY valid JSON matching this exact structure — no markdown fences, no explanation:\n{_JSON_SCHEMA}"
         )
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await _gemini_call_with_retry(
             loop, self._gemini_client,
             model="gemini-2.5-flash-lite",
@@ -867,7 +867,7 @@ class AITailor:
         """Call the LLM and return raw text (not parsed JSON)."""
         if self.provider == "gemini":
             from google.genai import types
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             response = await _gemini_call_with_retry(
                 loop, self._gemini_client,
                 model="gemini-2.5-flash-lite",

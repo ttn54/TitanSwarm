@@ -1,10 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import List
 import asyncio
+import logging
 import pandas as pd
 from jobspy import scrape_jobs
 from src.core.repository import JobRepository
 from src.core.models import Job
+
+logger = logging.getLogger(__name__)
 
 class BaseScraper(ABC):
     def __init__(self, repository: JobRepository):
@@ -19,7 +22,7 @@ class UniversalScraper(BaseScraper):
     async def scrape(self, role: str, location: str, results_wanted: int = 10) -> List[Job]:
         found_jobs = []
         
-        print(f"🔍 Searching Universal Aggregators for: {role} in {location}")
+        logger.info("Searching Universal Aggregators for: %s in %s", role, location)
         
         # JobSpy is synchronous, in production wrap in run_in_executor
         # We will cast it to list of dicts to process
@@ -29,14 +32,14 @@ class UniversalScraper(BaseScraper):
                 search_term=role,
                 location=location,
                 results_wanted=results_wanted,
-                country_alice="usa" # Will generalize to location broadly
+                country_indeed="usa"
             )
         except Exception as e:
-            print(f"Aggregation search failed: {e}")
+            logger.error("Aggregation search failed: %s", e)
             return found_jobs
             
         if jobs_df is None or jobs_df.empty:
-            print("No jobs found from aggregators.")
+            logger.info("No jobs found from aggregators.")
             return found_jobs
 
         # Batch dedup: run all existence checks in parallel instead of N sequential queries
@@ -82,8 +85,6 @@ class UniversalScraper(BaseScraper):
                 await self.repository.save_job(job)
                 found_jobs.append(job)
             except Exception as e:
-                print(f"Failed to process job record {job_id}: {e}")
+                logger.error("Failed to process job record %s: %s", job_id, e)
                 
         return found_jobs
-
-
