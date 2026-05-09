@@ -12,8 +12,6 @@ services:
       --server.address=0.0.0.0
       --server.headless=true
       --browser.gatherUsageStats=false
-      --server.enableCORS=false
-      --server.enableXsrfProtection=false
     ports:
       - "8501:8501"
     env_file:
@@ -24,8 +22,12 @@ services:
       - titanswarm_data:/app/data
       - titanswarm_output:/app/output
       - titanswarm_db:/app/db
-    depends_on:
-      - daemon
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   # ── Sourcing Daemon — background scraper ─────────────────────────────────
   daemon:
@@ -42,6 +44,12 @@ services:
       - titanswarm_data:/app/data
       - titanswarm_output:/app/output
       - titanswarm_db:/app/db
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "src.scrapers.daemon"]
+      interval: 60s
+      timeout: 10s
+      retries: 2
+      start_period: 15s
 
 # ── Named volumes — persisted on the Droplet's disk ─────────────────────────
 volumes:
