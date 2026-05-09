@@ -11,6 +11,7 @@ watchdog>=6.0.0
 
 # --- Data & validation ---
 pydantic>=2.12.0
+pydantic-settings>=2.9.0
 pandas>=2.2.0
 numpy>=1.26.0
 
