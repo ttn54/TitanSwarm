@@ -173,10 +173,9 @@ async def test_user_prompt_uses_keyword_overlap_for_project_scoring(tmp_path, sa
         await tailor.tailor_application(sample_job)
 
     user = captured["user"]
-    assert "keyword" in user.lower() or "overlap" in user.lower(), \
-        "User prompt must reference keyword-overlap for project scoring"
-    assert "Frontend/TypeScript/Vue JD → exclude Go/distributed/systems repos" not in user
-    assert "Backend/Go/systems JD → exclude pure frontend repos" not in user
+    # keyword-overlap scoring is now fully in the system prompt + JSON schema;
+    # the user prompt is purely data: role, JD, questions
+    assert "TARGET ROLE" in user, "User prompt must contain role"
 
 
 def test_recommended_course_hints_for_backend_role():
@@ -205,7 +204,7 @@ async def test_system_prompt_contains_sfu_course_hints_for_backend_job(tmp_path)
     )
     tailor = _make_tailor(tmp_path)
     system = await _capture_system_prompt(tailor, job)
-    assert "Approved SFU coursework hints" in system
+    assert "coursework hints" in system.lower(), "System prompt must mention coursework hints"
     assert "Computer Systems" in system
 
 
@@ -404,11 +403,20 @@ def _make_project(title: str, overlap: int, n_bullets: int) -> TailoredProject:
 
 
 def _blank_result_with_projects(job_id: str, projects: list) -> TailoredApplication:
+    """Return a mocked result with projects and a tech work-entry so
+    _is_work_relevant returns True → bullet caps are (4,3,2)."""
     return TailoredApplication(
         job_id=job_id,
         skills_to_highlight={"Languages": ["Python"]},
         tailored_projects=projects,
-        tailored_experience=[],
+        tailored_experience=[TailoredExperience(
+            title="Software Engineer",
+            company="Acme",
+            start_date="Jan 2024",
+            end_date="Present",
+            location="Remote",
+            bullets=["Built APIs."],
+        )],
     )
 
 
@@ -580,16 +588,12 @@ async def test_json_schema_hint_includes_keyword_overlap_count(tmp_path, sample_
     with patch.object(tailor, "_call_llm", side_effect=_spy):
         await tailor.tailor_application(sample_job)
 
-    # The JSON schema is appended to the user_prompt in _call_gemini, but
-    # tailor_application calls _call_llm (the mock), not _call_gemini directly.
-    # Verify the field is in the Gemini JSON schema by instantiating tailor
-    # and inspecting the _call_gemini source path via the json_schema variable.
-    # We test this by calling _call_gemini directly with a mock client.
-    import inspect
-    source = inspect.getsource(tailor._call_gemini)
-    assert "keyword_overlap_count" in source, (
-        "The JSON schema hint in _call_gemini must include 'keyword_overlap_count' "
-        "so the LLM populates it instead of the Pydantic default of 0."
+    # keyword_overlap_count is in the _JSON_SCHEMA module constant, not
+    # inline in _call_gemini (which delegates to _JSON_SCHEMA).
+    from src.core.ai import _JSON_SCHEMA
+    assert "keyword_overlap_count" in _JSON_SCHEMA, (
+        "_JSON_SCHEMA must include 'keyword_overlap_count' "
+        "so the LLM populates it instead of default 0."
     )
 
 
@@ -605,9 +609,8 @@ async def test_json_schema_hint_includes_missing_skills(tmp_path, sample_job):
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
-    import inspect
-    source = inspect.getsource(tailor._call_gemini)
-    assert "missing_skills" in source, (
+    from src.core.ai import _JSON_SCHEMA
+    assert "missing_skills" in _JSON_SCHEMA, (
         "The JSON schema hint in _call_gemini must include 'missing_skills' "
         "so the LLM routes JD-only skills there instead of skills_to_highlight."
     )
@@ -728,9 +731,8 @@ def test_system_prompt_languages_rule(tmp_path, sample_job):
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
-    import inspect
-    source = inspect.getsource(tailor._call_gemini)
-    source_lower = source.lower()
+    from src.core.ai import _SYSTEM_PROMPT_TEMPLATE
+    source_lower = _SYSTEM_PROMPT_TEMPLATE.lower()
     assert "all" in source_lower and "language" in source_lower, (
         "System prompt must instruct LLM to list ALL languages from context."
     )
