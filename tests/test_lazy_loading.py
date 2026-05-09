@@ -7,7 +7,8 @@ from src.core.ai import AITailor
 
 @pytest.mark.asyncio
 @patch('src.scrapers.worker.scrape_jobs')
-async def test_sourcing_engine_disables_linkedin_description_fetch(mock_scrape_jobs):
+async def test_sourcing_engine_scrapes_with_default_settings(mock_scrape_jobs):
+    """The engine now fetches full descriptions — no lazy-load flag expected."""
     repo = AsyncMock()
     engine = SourcingEngine(repository=repo)
     
@@ -17,15 +18,23 @@ async def test_sourcing_engine_disables_linkedin_description_fetch(mock_scrape_j
     
     mock_scrape_jobs.assert_called_once()
     _, kwargs = mock_scrape_jobs.call_args
-    assert kwargs.get('linkedin_fetch_description') is False, "Must set linkedin_fetch_description=False for lazy loading"
+    # linkedin_fetch_description is NOT passed (defaults to True) — full fetch
+    assert 'linkedin_fetch_description' not in kwargs or kwargs.get('linkedin_fetch_description') is not False, \
+        "Engine no longer forces linkedin_fetch_description=False; full descriptions are fetched"
 
 from src.core.ai import AITailor, _parse_ledger_as_resume
 @pytest.mark.asyncio
-@patch('src.core.ai.AITailor._call_openai', new_callable=AsyncMock)
-async def test_ai_tailor_detects_short_description(mock_call_openai):
+@patch('src.core.ai.AITailor._call_llm', new_callable=AsyncMock)
+async def test_ai_tailor_detects_short_description(mock_call_llm):
     # Mocking openai to just return a dummy
     from src.core.models import TailoredApplication
-    mock_call_openai.return_value = TailoredApplication(job_id="1", tailored_bullets=[], q_and_a_responses={}, missing_skills=[], skills_to_highlight={}, tailored_projects=[], tailored_experience=[])
+    mock_call_llm.return_value = TailoredApplication(
+        job_id="1",
+        skills_to_highlight={},
+        tailored_projects=[],
+        tailored_experience=[],
+        missing_skills=[],
+    )
     
     # Mock the internal fetch
     mock_ledger = AsyncMock()

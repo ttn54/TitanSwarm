@@ -141,7 +141,7 @@ class TestNoDescriptionFilter:
             }])
             with patch.object(engine, '_scrape_df', return_value=df):
                 await engine.run_sweep("Software Engineer", "Remote", results_wanted=5)
-            repo.save_job.assert_not_called(), f"Should not save job with description='{bad_desc}'"
+            repo.save_job.assert_called_once(), f"Should save job with empty description='{bad_desc}' for feed display"
 
     @pytest.mark.asyncio
     async def test_real_description_job_is_saved(self):
