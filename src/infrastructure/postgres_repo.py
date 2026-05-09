@@ -341,7 +341,7 @@ class PostgresRepository(JobRepository):
             return user.id
 
     async def get_user_by_username(self, username: str) -> dict | None:
-        """Returns {'id': int, 'username': str, 'password_hash': str} or None."""
+        """Returns {'id': int, 'username': str} or None.  The password hash is never exposed."""
         async with self.async_session() as session:
             result = await session.execute(
                 select(UserModel).where(UserModel.username == username)
@@ -349,20 +349,27 @@ class PostgresRepository(JobRepository):
             model = result.scalar_one_or_none()
             if model is None:
                 return None
-            return {"id": model.id, "username": model.username, "password_hash": model.password_hash}
+            return {"id": model.id, "username": model.username}
 
     async def verify_user(self, username: str, password: str) -> int | None:
         """
         Verify username + password.
         Returns user_id on success, None on failure.
+
+        The bcrypt comparison is done entirely inside this method — the
+        password hash never leaves the repository layer.
         """
         import bcrypt
-        user = await self.get_user_by_username(username)
-        if user is None:
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserModel).where(UserModel.username == username)
+            )
+            model = result.scalar_one_or_none()
+            if model is None:
+                return None
+            if bcrypt.checkpw(password.encode(), model.password_hash.encode()):
+                return model.id
             return None
-        if bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
-            return user["id"]
-        return None
 
     # ── Per-user ledger ───────────────────────────────────────────────────────
 
