@@ -8,6 +8,14 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.schema import CreateTable
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.exc import OperationalError, DatabaseError
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 
 from src.core.repository import JobRepository
 from src.core.models import Job, JobStatus, UserProfile
@@ -121,21 +129,44 @@ class PostgresRepository(JobRepository):
     SQLAlchemy-based asynchronous repository for PostgreSQL (and SQLite for testing).
     """
     def __init__(self, dsn: str = "sqlite+aiosqlite:///:memory:"):
+        self.dsn = dsn
         self.is_postgres = dsn.startswith("postgresql")
         
-        # Apply connection pooling only for PostgreSQL, SQLite :memory: doesn't support these pool args well
+        # Apply connection pooling only for PostgreSQL.
+        # pool_pre_ping=True detects stale connections that were dropped by
+        # the server (idle timeout, restart) before handing them to the app.
         engine_kwargs = {"echo": False}
         if self.is_postgres:
-            engine_kwargs["pool_size"] = 20
-            engine_kwargs["max_overflow"] = 50
+            engine_kwargs.update({
+                "pool_size": 20,
+                "max_overflow": 50,
+                "pool_pre_ping": True,
+                "connect_args": {
+                    "timeout": 10,           # seconds to wait for a TCP connection
+                    "command_timeout": 30,   # seconds before a query is cancelled
+                },
+            })
 
         self.engine = create_async_engine(dsn, **engine_kwargs)
         self.async_session = async_sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
 
+    @retry(
+        retry=retry_if_exception_type((OperationalError, DatabaseError, OSError)),
+        wait=wait_exponential(multiplier=1, min=2, max=60),
+        stop=stop_after_attempt(5),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
     async def init_db(self):
-        """Creates tables if they do not exist, then migrates new columns."""
+        """
+        Creates tables if they do not exist, then migrates new columns.
+
+        Retries up to 5 times with exponential backoff (2s → 4s → 8s → 16s → 32s)
+        when the database is unreachable — covers transient network blips and
+        PostgreSQL restarts during container orchestration.
+        """
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         # SQLite does not re-add columns on create_all for existing tables,
