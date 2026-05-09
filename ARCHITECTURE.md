@@ -1,6 +1,6 @@
 # TITANSWARM — Master Architecture & Design Document
 
-**Version:** 2.0 | **Last Updated:** 2026-04-07 | **Lead Engineer:** Zen
+**Version:** 3.0 | **Last Updated:** 2026-05-09 | **Lead Engineer:** Zen
 
 ---
 
@@ -9,13 +9,13 @@
 1. [Executive Summary](#1-executive-summary)
 2. [Core Design Principles](#2-core-design-principles)
 3. [System Component Diagram](#3-system-component-diagram)
-4. [Technology Stack & Rationale](#4-technology-stack--rationale)
+4. [Technology Stack](#4-technology-stack)
 5. [Canonical Data Models](#5-canonical-data-models)
 6. [Component Deep-Dives](#6-component-deep-dives)
 7. [End-to-End Data Flow](#7-end-to-end-data-flow)
 8. [Configuration & Secrets Management](#8-configuration--secrets-management)
-9. [Observability Strategy](#9-observability-strategy)
-10. [Security & Compliance](#10-security--compliance)
+9. [Security & Compliance](#9-security--compliance)
+10. [Observability Strategy](#10-observability-strategy)
 11. [Testing Strategy](#11-testing-strategy)
 12. [Deployment Topology](#12-deployment-topology)
 13. [Failure Modes & Resilience](#13-failure-modes--resilience)
@@ -25,11 +25,11 @@
 
 ## 1. Executive Summary
 
-TitanSwarm is an autonomous, agentic job application Co-Pilot targeting Fall 2026 SWE recruitment. It eliminates the manual overhead of job hunting by automating discovery, ATS-optimized resume tailoring, and Q&A generation — while deliberately keeping a **human in the loop** for the final submission step to avoid bot-detection flags and recruiter stigma.
+TitanSwarm is an autonomous, agentic job application Co-Pilot targeting Fall 2026 SWE recruitment. It automates discovery, ATS-optimized resume tailoring, cover letter generation, and Q&A preparation — while keeping a **human in the loop** for final submission.
 
-**Core value proposition:** The system handles 99% of the computational work (scraping, RAG synthesis, PDF generation) and delivers a ready-to-submit package to the user. The user's only job is to click "Submit" on the external portal.
+**Core value proposition:** The system handles 99% of the computational work (scraping, RAG synthesis, PDF generation) and delivers a ready-to-submit package. The user's only job is to click "Submit" on the external portal.
 
-**Design target:** Support 100+ concurrent users with clean horizontal scalability at the database and worker layers.
+**Design target:** Multi-tenant architecture supporting concurrent users with per-user data isolation and cookie-based authentication.
 
 ---
 
@@ -37,12 +37,12 @@ TitanSwarm is an autonomous, agentic job application Co-Pilot targeting Fall 202
 
 | # | Principle | Enforcement |
 |---|-----------|-------------|
-| 1 | **No Hallucinations** | The RAG engine is strictly sandboxed to `data/ledger.md`. The LLM prompt explicitly forbids inventing experience, tools, or credentials not present in the ledger. `temperature=0.0` is enforced on all synthesis calls. |
-| 2 | **Repository Pattern** | All persistence logic is behind the `JobRepository` ABC. No component may import a database driver directly — they receive a `JobRepository` instance via constructor injection. |
-| 3 | **Async-First** | All I/O-bound operations (DB reads/writes, LLM API calls, PDF rendering) are `async/await`. No blocking calls on the event loop. |
-| 4 | **Strict Type Contracts** | All inter-component data is typed via Pydantic v2 models. Raw dicts and untyped DataFrames are validated at system boundaries before entering any business logic. |
-| 5 | **Human-in-the-Loop** | The system never auto-submits to external job portals. All submissions are gated behind a human action in the Dispatch Terminal. |
-| 6 | **Fail Loud, Recover Gracefully** | Components log errors at `ERROR` level with full context. The Sourcing Daemon recovers from per-sweep failures without crashing the process. |
+| 1 | **Zero Hallucination** | RAG engine sandboxed to user's personal ledger via FAISS. LLM prompt forbids inventing experience not in context. `temperature=0.2` on all synthesis calls. |
+| 2 | **Repository Pattern** | All persistence behind `JobRepository` ABC. No component imports a database driver directly — receives a repository via constructor injection. |
+| 3 | **Async-First** | All I/O (DB, LLM API, PDF rendering) uses `async/await`. Blocking calls (JobSpy) are wrapped in `run_in_executor`. |
+| 4 | **Strict Type Contracts** | All inter-component data typed via Pydantic v2 models. Raw DataFrames validated at system boundaries. |
+| 5 | **Human-in-the-Loop** | System never auto-submits to external portals. All submissions gated behind human action. |
+| 6 | **Fail Loud, Recover Gracefully** | Components log at `ERROR` with full context. Daemon recovers from per-sweep failures without crashing. Model cascade provides LLM fallback. |
 
 ---
 
@@ -54,172 +54,135 @@ TitanSwarm is an autonomous, agentic job application Co-Pilot targeting Fall 202
 │                                                                             │
 │  ┌──────────────────────────────┐    ┌──────────────────────────────────┐  │
 │  │     SOURCING DAEMON          │    │      DISPATCH TERMINAL           │  │
-│  │     (src/scrapers/daemon.py) │    │      (src/ui/app.py — Streamlit) │  │
+│  │     (src/scrapers/)          │    │      (src/ui/ — Streamlit)       │  │
 │  │                              │    │                                  │  │
-│  │  ┌────────────────────────┐  │    │  ┌─────────────────────────────┐ │  │
-│  │  │    SourcingEngine      │  │    │  │  Job Feed                   │ │  │
-│  │  │  (worker.py)           │  │    │  │  My Applications (Kanban)   │ │  │
-│  │  │                        │  │    │  │  Preferences / Ledger       │ │  │
-│  │  │  JobSpy →              │  │    │  └──────────────┬──────────────┘ │  │
-│  │  │  LinkedIn/Indeed/      │  │    │                 │ user actions    │  │
-│  │  │  Glassdoor             │  │    └─────────────────┼────────────────┘  │
-│  │  └──────────┬─────────────┘  │                      │                   │
-│  │             │ await          │                      │ await             │
-│  └─────────────┼────────────────┘                      │                   │
-│                │                                        │                   │
-│                ▼                                        ▼                   │
+│  │  SourcingEngine              │    │  app.py (router)                 │  │
+│  │  JobSpy → LinkedIn / Indeed  │    │  ├── pages/job_feed.py           │  │
+│  │  Title filter + dedup        │    │  ├── pages/applications.py       │  │
+│  └──────────┬───────────────────┘    │  ├── pages/preferences.py        │  │
+│             │ await                  │  ├── auth.py (cookie + rate limit)│  │
+│             │                        │  ├── state.py (session init)      │  │
+│             │                        │  ├── styles.py (CSS)              │  │
+│             │                        │  └── components.py (helpers)      │  │
+│             │                        └──────────────┬───────────────────┘  │
+│             │                                       │                      │
+│             ▼                                       ▼                      │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    JobRepository  (ABC — src/core/repository.py)    │   │
-│  │                                                                     │   │
-│  │   save_job() │ get_job() │ update_status()                         │   │
-│  │   get_jobs_by_status() │ count_all()                               │   │
+│  │                    JobRepository  (ABC)                              │   │
+│  │   SQLite (dev) ←──────────────────────→ PostgreSQL 15+ (prod)       │   │
+│  │   PostgresRepository (SQLAlchemy 2.0 async, dialect-aware UPSERT)   │   │
 │  └──────────────────────────────┬──────────────────────────────────────┘   │
-│                                 │                                           │
-│                  ┌──────────────┴────────────────┐                         │
-│                  │ PostgresRepository             │                         │
-│                  │ (src/infrastructure/           │                         │
-│                  │  postgres_repo.py)             │                         │
-│                  │  SQLAlchemy async + UPSERT     │                         │
-│                  └──────────────┬─────────────────┘                        │
-│                                 │                                           │
-│                                 ▼                                           │
-│                  ┌──────────────────────────────┐                          │
-│                  │         PostgreSQL            │                          │
-│                  │         jobs  table           │                          │
-│                  └──────────────────────────────┘                          │
-│                                 │                                           │
-│          PENDING_REVIEW jobs    │                                           │
-│                  ▼                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    RAG TAILOR ENGINE                                │   │
-│  │                                                                     │   │
-│  │   ┌─────────────────────┐        ┌──────────────────────────────┐  │   │
-│  │   │   LedgerManager     │        │         AITailor             │  │   │
-│  │   │  (src/core/         │  facts │    (src/core/ai.py)          │  │   │
-│  │   │   ledger.py)        │───────▶│    OpenAI gpt-4o-mini        │  │   │
-│  │   │                     │        │    temperature=0.0           │  │   │
-│  │   │  data/ledger.md     │        │    Structured output         │  │   │
-│  │   │  → FAISS index      │        │    (TailoredApplication)     │  │   │
-│  │   └─────────────────────┘        └──────────────┬───────────────┘  │   │
-│  │                                                  │ JSON             │   │
-│  └──────────────────────────────────────────────────┼─────────────────┘   │
-│                                                      │                     │
-│                                                      ▼                     │
-│                              ┌──────────────────────────────┐              │
-│                              │       PDF Generator          │              │
-│                              │   (src/core/pdf_generator.py)│              │
-│                              │   Jinja2 + Playwright        │              │
-│                              │   → ATS-ready resume.pdf     │              │
-│                              └──────────────────────────────┘              │
+│                                 │                                          │
+│               ┌─────────────────┴─────────────────┐                       │
+│               ▼                                   ▼                       │
+│  ┌──────────────────────┐            ┌──────────────────────────┐         │
+│  │   RAG Tailor Engine   │            │   PDF Generator           │         │
+│  │                       │            │                            │         │
+│  │  LedgerManager        │            │  Jinja2 + Playwright       │         │
+│  │  FAISS + MiniLM-L6-v2 │───────────→│  (Chromium headless)       │         │
+│  │  Gemini 2.5 Flash Lite│            │  ATS-readable PDF output   │         │
+│  │  Model cascade fallback│           │  Resume + Cover Letter     │         │
+│  └──────────────────────┘            └──────────────────────────┘         │
 │                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │   Config Layer  (src/core/config.py — Pydantic Settings singleton)  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. Technology Stack & Rationale
+## 4. Technology Stack
 
-| Layer | Technology | Version | Rationale |
-|-------|-----------|---------|-----------|
-| **Language** | Python | 3.12 | Dominant ML/AI ecosystem; async support via `asyncio` |
-| **UI Framework** | Streamlit | 1.55 | Fastest path to a production-ready data app without a separate frontend. Replaced React/TypeScript for MVP velocity. |
-| **Scraping** | JobSpy | latest | Unified aggregator for LinkedIn, Indeed, Glassdoor with built-in anti-bot evasion. Avoids building per-site scraper adapters. |
-| **ORM / DB Driver** | SQLAlchemy 2.0 (async) + asyncpg | 2.0 | Full async support, dialect-agnostic UPSERT, type-safe `mapped_column` syntax. `asyncpg` is the fastest PostgreSQL driver for Python. |
-| **Dev / Test DB** | aiosqlite (in-memory SQLite) | latest | Zero-dependency test isolation. Same SQLAlchemy interface, no Docker required. |
-| **Production DB** | PostgreSQL | 15+ | ACID guarantees, native JSONB (future), excellent async pooling, horizontally scalable via read replicas. |
-| **Data Validation** | Pydantic v2 | 2.x | Runtime type enforcement at every system boundary. Structured output from OpenAI uses Pydantic models directly. |
-| **Vector Store** | FAISS (CPU) | 1.13 | Runs fully locally; no network calls during resume synthesis. `IndexFlatL2` for exact nearest-neighbor search over small ledger corpora. |
-| **Embeddings** | sentence-transformers `all-MiniLM-L6-v2` | latest | Lightweight, fast, no API cost for indexing the ledger. |
-| **LLM** | OpenAI `gpt-4o-mini` | latest | Structured JSON output via `beta.chat.completions.parse`. Best cost/quality ratio for resume tailoring. Swappable via `AITailor` interface. |
-| **PDF Rendering** | Jinja2 + Playwright (Chromium) | latest | HTML-to-PDF pipeline gives full CSS control over resume layout. ATS-readable (text-selectable PDF, not image). |
+| Layer | Technology | Rationale |
+|-------|-----------|-----------|
+| **Language** | Python 3.12 | Dominant ML/AI ecosystem; native async support |
+| **UI** | Streamlit 1.55 | Fastest path to production data app without separate frontend |
+| **Scraping** | python-jobspy | Unified aggregator for LinkedIn, Indeed with built-in anti-bot evasion |
+| **ORM** | SQLAlchemy 2.0 (async) + asyncpg | Dialect-agnostic UPSERT, type-safe mapped_column, fastest Postgres driver |
+| **Dev DB** | aiosqlite (SQLite) | Zero-dependency test isolation, same SQLAlchemy interface |
+| **Prod DB** | PostgreSQL 15+ | ACID, native JSONB, async pooling, horizontally scalable |
+| **Validation** | Pydantic v2 | Runtime type enforcement at every system boundary |
+| **Config** | pydantic-settings | Typed, validated env var parsing with fail-fast startup |
+| **Vector Store** | FAISS (CPU) | Fully local; no network calls during synthesis |
+| **Embeddings** | sentence-transformers `all-MiniLM-L6-v2` | Lightweight, fast, no API cost |
+| **LLM** | Gemini 2.5 Flash Lite (primary) | Free tier, structured JSON output. Model cascade fallback for 503s |
+| **LLM (alt)** | OpenAI gpt-4o-mini | Optional provider via `AI_PROVIDER=openai` |
+| **PDF** | Jinja2 + Playwright (Chromium) | Full CSS control, text-selectable ATS-readable output |
+| **Auth** | bcrypt + HMAC-signed cookies | Secure password hashing, stateless session management |
+| **CI/CD** | GitHub Actions | Lint + test gate before deploy to DigitalOcean |
 
 ---
 
 ## 5. Canonical Data Models
 
+All models defined in `src/core/models.py`.
+
 ### 5.1 `Job` — Core Domain Entity
 
-```
-src/core/models.py :: Job(BaseModel)
-
-┌─────────────────┬──────────────┬────────────────────────────────────────────┐
-│ Field           │ Type         │ Description                                │
-├─────────────────┼──────────────┼────────────────────────────────────────────┤
-│ id              │ str          │ Deterministic hash of job URL (e.g. li-1234)│
-│ company         │ str          │ Hiring company name                        │
-│ role            │ str          │ Job title (e.g. "Software Engineer Intern")│
-│ status          │ JobStatus    │ Current lifecycle state (see §5.2)         │
-│ job_description │ str          │ Full raw JD text from scraper              │
-│ required_skills │ list[str]    │ Skills extracted from JD for RAG query     │
-│ custom_questions│ list[str]    │ Portal-specific application questions       │
-│ url             │ str          │ External application URL                   │
-└─────────────────┴──────────────┴────────────────────────────────────────────┘
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `str` | Deterministic hash from source board (e.g. `li-1234`) |
+| `company` | `str` | Hiring company name |
+| `role` | `str` | Job title |
+| `status` | `JobStatus` | Current lifecycle state (see §5.2) |
+| `job_description` | `str` | Full raw JD text |
+| `required_skills` | `list[str]` | Skills extracted from JD |
+| `custom_questions` | `list[str]` | Portal-specific application questions |
+| `url` | `str` | External application URL |
+| `location` | `str` | Job location |
+| `date_posted` | `str` | ISO date string |
+| `salary_min/max` | `float \| None` | Salary range |
+| `salary_currency` | `str` | Currency code (e.g. `CAD`, `USD`) |
+| `salary_interval` | `str` | Pay period (`yearly`, `hourly`, `monthly`) |
 
 ### 5.2 `JobStatus` — State Machine
 
-Every `Job` transitions through a strict state machine. Invalid transitions are rejected.
-
 ```
-                    ┌─────────────────────────────┐
-                    │         [Error]              │◀── any state on exception
-                    └─────────────────────────────┘
+  Scraper saves ──▶ DISCOVERED ──────────────▶ PENDING_REVIEW
+                                                      │
+                                            ┌─────────┴─────────┐
+                                            ▼                   ▼
+                                       SUBMITTED            REJECTED
+                                            │
+                                  ┌─────────┴─────────┐
+                                  ▼                   ▼
+                              INTERVIEW           REJECTED
 
-  Scraper saves ──▶ DISCOVERED ──▶ PROCESSING ──▶ PENDING_REVIEW
-                                                        │
-                                              ┌─────────┴─────────┐
-                                              ▼                   ▼
-                                         SUBMITTED            REJECTED
-                                              │              (user skips)
-                                    ┌─────────┴─────────┐
-                                    ▼                   ▼
-                                INTERVIEW           REJECTED
-                              (recruiter           (ghosted)
-                               responds)
+  Any state ──▶ ERROR  (on unrecoverable exception)
 ```
-
-| Transition | Trigger | Actor |
-|------------|---------|-------|
-| `DISCOVERED → PROCESSING` | RAG Tailor picks up job | Automated |
-| `PROCESSING → PENDING_REVIEW` | PDF generation complete | Automated |
-| `PENDING_REVIEW → SUBMITTED` | User clicks "Mark Submitted" in UI | Human |
-| `PENDING_REVIEW → REJECTED` | User clicks "Skip" in UI | Human |
-| `SUBMITTED → INTERVIEW` | User manually updates after callback | Human |
-| `SUBMITTED → REJECTED` | User manually updates (ghosted) | Human |
-| `ANY → ERROR` | Exception during processing | Automated |
 
 ### 5.3 `TailoredApplication`
 
-```
-src/core/models.py :: TailoredApplication(BaseModel)
-
-┌──────────────────┬────────────────┬─────────────────────────────────────────┐
-│ Field            │ Type           │ Description                             │
-├──────────────────┼────────────────┼─────────────────────────────────────────┤
-│ job_id           │ str            │ Foreign key to Job.id                   │
-│ tailored_bullets │ list[str]      │ 3–5 ATS resume bullets from ledger facts│
-│ q_and_a_responses│ dict[str, str] │ Portal question → 150-word answer       │
-└──────────────────┴────────────────┴─────────────────────────────────────────┘
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `job_id` | `str` | Foreign key to Job |
+| `skills_to_highlight` | `dict[str, list[str]]` | Categorized skills from resume relevant to JD |
+| `tailored_projects` | `list[TailoredProject]` | Projects with bullets rewritten for this JD |
+| `tailored_experience` | `list[TailoredExperience]` | Work entries with bullets rewritten for this JD |
+| `tailored_education` | `list[TailoredEducation]` | Education entries from source facts |
+| `q_and_a_responses` | `dict[str, str]` | Portal question → answer |
+| `missing_skills` | `list[str]` | Skills in JD not present in candidate's context |
+| `work_experience_relevant` | `bool` | Whether work experience is tech-relevant |
 
 ### 5.4 `UserProfile`
 
-```
-src/core/models.py :: UserProfile(BaseModel)
+| Field | Type | Description |
+|-------|------|-------------|
+| `name`, `email`, `phone` | `str` | Contact info |
+| `github`, `linkedin`, `website` | `str` | Profile URLs |
+| `base_summary` | `str` | Professional summary for RAG context |
+| `skills` | `list[str]` | Master skills list |
+| `education` | `list[dict]` | Structured education history |
+| `experience` | `list[dict]` | Structured work history |
+| `pref_role`, `pref_location` | `str` | Job targeting preferences |
 
-┌──────────────┬──────────────┬────────────────────────────────────────────────┐
-│ Field        │ Type         │ Description                                    │
-├──────────────┼──────────────┼────────────────────────────────────────────────┤
-│ name         │ str          │ Full name                                      │
-│ email        │ str          │ Contact email                                  │
-│ phone        │ str          │ Contact phone                                  │
-│ github       │ str          │ GitHub profile URL                             │
-│ linkedin     │ str          │ LinkedIn profile URL                           │
-│ base_summary │ str          │ Elevator pitch — injected into every tailoring │
-│ skills       │ list[str]    │ Master skills list for ATS scoring             │
-│ experience   │ list[dict]   │ Structured work/project history                │
-└──────────────┴──────────────┴────────────────────────────────────────────────┘
-```
+### 5.5 `CoverLetterResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `body` | `str` | Letter body paragraphs (no header/signature) |
+| `company_address` | `str \| None` | Recipient address from JD, or null |
 
 ---
 
@@ -229,379 +192,310 @@ src/core/models.py :: UserProfile(BaseModel)
 
 **Files:** `src/scrapers/worker.py`, `src/scrapers/daemon.py`
 
-**Responsibilities:**
-- Concurrently query LinkedIn, Indeed, and Glassdoor via JobSpy
-- Deduplicate against the repository using `get_job()` (O(1) primary key lookup)
-- Normalize raw Pandas `DataFrame` rows into typed `Job` Pydantic models
-- Persist new jobs via `save_job()` (UPSERT — safe to re-run)
+The `SourcingEngine` wraps JobSpy with:
+- **Title filtering:** Fuzzy match against target role to avoid irrelevant results
+- **Country detection:** Auto-detects Indeed country code from location string
+- **Salary extraction:** Parses `min_amount`, `max_amount`, `currency`, `interval` from raw data
+- **Batch dedup:** Parallel `get_job()` checks via `asyncio.gather()` before saving
+- **Thread isolation:** Blocking JobSpy calls wrapped in `asyncio.get_running_loop().run_in_executor()`
 
 **Daemon lifecycle:**
 ```
 asyncio.run(main())
-  │
-  ├── PostgresRepository(dsn).init_db()   # create tables if not exist
-  ├── SourcingEngine(repository, interval)
-  │
+  ├── PostgresRepository(dsn).init_db()
+  ├── SourcingEngine(repository)
   └── while True:
-        ├── run_sweep(role, location, results_wanted)
-        │     ├── jobspy.scrape_jobs(...)       # blocking I/O — runs in thread
-        │     ├── for each row:
-        │     │     ├── get_job(id)             # dedup check
-        │     │     ├── validate → Job model
-        │     │     └── save_job(job)           # UPSERT
-        │     └── return saved_count
-        │
+        ├── for each role × location:
+        │     └── run_sweep(role, location, results_wanted)
         └── asyncio.sleep(interval_hours * 3600)
 ```
 
-**Deduplication strategy:** Hash ID is the job's unique identifier from the source board (e.g., `li-1234`). The UPSERT in `PostgresRepository.save_job()` is idempotent — a re-scraped job will update in place without creating a duplicate row.
-
----
-
 ### 6.2 Repository Layer
 
-**Files:** `src/core/repository.py`, `src/infrastructure/postgres_repo.py`, `src/ui/mock_repo.py`
-
-**The `JobRepository` ABC** is the contract every storage backend must implement. No component in the business logic layer may import `postgres_repo` directly — they receive a repository instance via constructor injection.
+**Files:** `src/core/repository.py` (ABC), `src/infrastructure/postgres_repo.py`
 
 ```
 JobRepository (ABC)
 ├── PostgresRepository     ← production (SQLAlchemy + asyncpg / aiosqlite)
-└── MockUIRepository       ← unit tests and UI dev mode
+└── MockUIRepository       ← unit tests (src/ui/mock_repo.py)
 ```
 
-**`PostgresRepository` internals:**
-- SQLAlchemy `async_sessionmaker` with `expire_on_commit=False`
-- Dialect-aware UPSERT: `postgresql.insert(...).on_conflict_do_update(...)` vs. `sqlite.insert(...).on_conflict_do_update(...)`
-- `init_db()` must be called once at process startup to auto-create the `jobs` table
-- `close()` disposes the engine connection pool on clean shutdown
+Key capabilities:
+- Dialect-aware UPSERT (PostgreSQL vs SQLite syntax)
+- Multi-tenant: all queries filtered by `user_id`
+- Ledger persistence (per-user markdown storage)
+- Profile persistence (JSON-serialized UserProfile)
+- Tailored result persistence (AI JSON + PDF bytes + cover letter)
+- Auth: `create_user()`, `verify_user()` with bcrypt hashing
 
-**Database schema (`jobs` table):**
-```sql
-CREATE TABLE jobs (
-    id              VARCHAR PRIMARY KEY,
-    company         VARCHAR NOT NULL,
-    role            VARCHAR NOT NULL,
-    status          VARCHAR NOT NULL,   -- JobStatus enum value
-    job_description VARCHAR NOT NULL,
-    url             VARCHAR NOT NULL
-);
+### 6.3 RAG Tailor Engine
+
+**Files:** `src/core/ai.py`, `src/core/ledger.py`
+
+**Stage A — Ingestion:**
 ```
-
----
-
-### 6.3 RAG Tailor & Ingestion Engine
-
-**Files:** `src/core/ledger.py`, `src/core/ai.py`, `data/ledger.md`
-
-**Two-stage pipeline:**
-
-**Stage A — Ingestion (run once / on update):**
-```
-data/ledger.md
-  │
-  ├── Read & chunk by double-newline (paragraph boundaries)
-  ├── SentenceTransformer('all-MiniLM-L6-v2').encode(chunks)
-  │     → float32 embeddings, dim=384
-  └── faiss.IndexFlatL2(384).add(embeddings)
-        → in-memory FAISS index
+User's ledger (DB or file)
+  ├── Chunk by paragraph boundaries
+  ├── SentenceTransformer('all-MiniLM-L6-v2').encode(chunks) → float32[384]
+  └── faiss.IndexFlatL2(384).add(embeddings) → in-memory FAISS index
 ```
 
 **Stage B — Synthesis (per job):**
 ```
-Job.role + Job.required_skills
-  │
-  ├── LedgerManager.search_facts(query, top_k=4)
-  │     → cosine-nearest chunks from ledger
-  │
+Job.role + Job.job_description
+  ├── LedgerManager.search_facts(query, top_k=5) → nearest chunks
   └── AITailor.tailor_application(job)
-        ├── System prompt: STRICT hallucination guard + ledger facts
-        ├── User prompt: full Job Description
-        ├── gpt-4o-mini, temperature=0.0
-        └── Structured output → TailoredApplication (Pydantic)
+        ├── System prompt: strict hallucination guard + ledger facts
+        ├── Gemini 2.5 Flash Lite (primary) with model cascade fallback
+        ├── temperature=0.2, structured JSON output
+        └── Pydantic parse → TailoredApplication
 ```
 
-**Hallucination prevention:** The system prompt explicitly states the model is "FORBIDDEN from inventing or hallucinating ANY experience, tools, or jobs." Only facts retrieved from the FAISS index are injected into context. Facts not present in the ledger are omitted, not invented.
+**Model cascade:** If primary model returns 503/overloaded, automatically tries fallback models in sequence to ensure availability.
 
----
+**Hallucination guard:** System prompt states model is "FORBIDDEN from inventing ANY experience, tools, or credentials not in the candidate's context." Temperature 0.2 ensures deterministic output.
 
 ### 6.4 PDF Generator
 
-**File:** `src/core/pdf_generator.py`, `src/core/templates/resume.html`
+**Files:** `src/core/pdf_generator.py`, `src/core/templates/resume.html`
 
-**Pipeline:**
 ```
-UserProfile (ledger dict) + TailoredApplication
-  │
-  ├── Jinja2.render(resume.html)   → rendered HTML string
-  │
+UserProfile + TailoredApplication
+  ├── Jinja2.render(resume.html) → rendered HTML
   └── Playwright (headless Chromium)
         ├── page.set_content(html)
-        └── page.pdf(format="Letter", print_background=True)
-              → output/resume.pdf
+        └── page.pdf(format="Letter") → ATS-readable PDF
 ```
 
-**Output characteristics:**
-- Letter format (8.5" × 11"), zero margins
-- Text-selectable PDF (not image-rendered) — ATS-parseable
-- Layout controlled entirely via CSS in `resume.html`
+Generates both **resume PDFs** and **cover letter PDFs**. Text-selectable output (not image-rendered) ensures ATS parseability.
 
----
+### 6.5 Match Scoring
 
-### 6.5 Dispatch Terminal (Streamlit UI)
+**File:** `src/core/matching.py`
 
-**File:** `src/ui/app.py`
+Hybrid 0–100 score: 50% semantic cosine similarity (sentence-transformer embeddings) + 50% keyword overlap (JD token fraction in resume). Cached per job-list fingerprint to avoid re-embedding on every UI rerun.
 
-**Three-page architecture:**
+### 6.6 Dispatch Terminal (Modular Streamlit UI)
 
-| Page | Purpose | Key Actions |
-|------|---------|-------------|
-| **Job Feed** | Discover and evaluate new jobs | Search by role/location → run sweep → review job cards → ⚡ Auto-Apply or Skip |
-| **My Applications** | Track pipeline status | 4-column Kanban (Pending Review / Applied / Interview / Rejected) |
-| **Preferences** | Configure profile and job targeting | Profile completion meter, Immutable Facts Ledger editor, work mode / job type prefs |
+**Files:** `src/ui/` (modular package)
 
-**Repository connection:** UI connects to `PostgresRepository` using `DATABASE_URL` env var, falling back to `sqlite+aiosqlite:///titanswarm.db` in local dev mode. `asyncio.run()` bridges Streamlit's synchronous event loop to the async repository interface.
+| Module | Lines | Responsibility |
+|--------|-------|---------------|
+| `app.py` | 168 | Page config, sidebar, navigation router |
+| `auth.py` | 217 | HMAC cookie auth, rate limiter, login/register |
+| `state.py` | 145 | Repository init, AI warm-up, cache management |
+| `styles.py` | 193 | Global CSS injection |
+| `components.py` | 356 | Pure helper functions (badge, avatar, filters) |
+| `pages/job_feed.py` | 435 | Discovery, tailoring, download, cover letters |
+| `pages/applications.py` | 160 | 4-column Kanban pipeline board |
+| `pages/preferences.py` | 445 | Profile, daemon config, GitHub enrichment, resume upload |
+
+### 6.7 Enrichment Modules
+
+| Module | Purpose |
+|--------|---------|
+| `src/core/github_enricher.py` | Fetches public repos + READMEs via GitHub REST API, writes to ledger |
+| `src/core/website_enricher.py` | Scrapes portfolio website, extracts structured data via Gemini |
 
 ---
 
 ## 7. End-to-End Data Flow
 
 ```
-User enters "Software Engineer Intern, Vancouver" in Job Feed
+User searches "Software Engineer Intern, Vancouver" in Job Feed
   │
   ▼
-SourcingEngine.run_sweep("Software Engineer Intern", "Vancouver", results_wanted=25)
-  │
-  ├── JobSpy queries LinkedIn + Indeed + Glassdoor concurrently
-  ├── Raw DataFrame rows → validated Job(status=DISCOVERED) models
-  ├── get_job(id) → None (new) → save_job(job)  [UPSERT]
-  └── Returns: 12 new jobs saved
+SourcingEngine.run_sweep("Software Engineer Intern", "Vancouver", 50)
+  ├── JobSpy queries LinkedIn + Indeed concurrently (in thread pool)
+  ├── Title filter removes irrelevant results
+  ├── Raw DataFrame → validated Job(status=DISCOVERED) models
+  ├── Batch dedup via asyncio.gather → save new jobs (UPSERT)
+  └── Returns: list of all job IDs
   │
   ▼
-UI renders Job Feed cards from get_jobs_by_status(PENDING_REVIEW)
+Job Feed renders cards with match scores (semantic + keyword hybrid)
   │
-User clicks "⚡ Auto-Apply" on a job card
+User clicks "📄 Tailor Resume" on a job card
   │
   ├── AITailor.tailor_application(job)
-  │     ├── LedgerManager.search_facts(query) → top 4 ledger chunks
-  │     ├── OpenAI API call (gpt-4o-mini, temp=0.0)
-  │     └── Returns TailoredApplication (bullets + Q&A)
+  │     ├── FAISS search → top-5 ledger chunks as context
+  │     ├── Gemini API call (structured JSON output)
+  │     └── Returns TailoredApplication (projects, skills, Q&A, gaps)
   │
-  ├── PDFGenerator.generate_resume_pdf(ledger, tailored_app)
-  │     └── Returns: output/resume_{job_id}.pdf
+  ├── PDFGenerator.generate_resume_pdf(user_ledger, tailored_app)
+  │     └── Returns: output/{company}_{role}_Resume.pdf
   │
-  └── update_status(job_id, PENDING_REVIEW)   [ready for human review]
+  ├── Persist to DB: AI JSON + PDF bytes
+  ├── update_status(job_id, PENDING_REVIEW)
+  └── Auto-download PDF to user's browser
   │
   ▼
-User downloads PDF → manually submits to external portal
+User reviews PDF → manually submits to external portal
   │
-User clicks "Mark as Submitted" in UI
-  │
-  └── update_status(job_id, SUBMITTED)
+User clicks "✅ Mark as Applied" → update_status(job_id, SUBMITTED)
 ```
 
 ---
 
 ## 8. Configuration & Secrets Management
 
-All configuration is injected via environment variables. No secrets are hardcoded.
+All config is centralized in `src/core/config.py` via Pydantic Settings. Values are read from environment variables or `.env` file.
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | No | `sqlite+aiosqlite:///titanswarm.db` | SQLAlchemy async DSN. Set to `postgresql+asyncpg://user:pass@host:5432/titanswarm` in production. |
-| `OPENAI_API_KEY` | **Yes** (for RAG) | `None` | OpenAI API key. `AITailor` raises `ValueError` on startup if missing. |
-| `SCRAPER_ROLE` | No | `Software Engineer` | Target job title for the Sourcing Daemon. |
-| `SCRAPER_LOCATION` | No | `Vancouver, BC` | Target location for the Sourcing Daemon. |
-| `SCRAPER_INTERVAL_HOURS` | No | `12` | Hours between Daemon scraping sweeps. |
-| `SCRAPER_RESULTS_WANTED` | No | `10` | Maximum jobs to fetch per sweep per site. |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AI_PROVIDER` | `gemini` | LLM backend: `gemini` or `openai` |
+| `GEMINI_API_KEY` | — | Google Gemini API key |
+| `OPENAI_API_KEY` | — | OpenAI key (only if `AI_PROVIDER=openai`) |
+| `DATABASE_URL` | `sqlite+aiosqlite:///titanswarm.db` | Async SQLAlchemy DSN |
+| `SCRAPER_ROLES` | `Software Engineer Intern` | Pipe-separated target titles |
+| `SCRAPER_LOCATIONS` | `Vancouver, BC` | Pipe-separated target locations |
+| `SCRAPER_INTERVAL_HOURS` | `12` | Hours between daemon sweeps |
+| `SCRAPER_RESULTS_WANTED` | `25` | Jobs per role/location per sweep |
+| `SESSION_SECRET` | *(random per-process)* | HMAC secret for session cookies |
 
-**Local development:** Create a `.env` file at the project root (never commit it). Load with `python-dotenv` or `export` manually before running.
-
----
-
-## 9. Observability Strategy
-
-### Logging
-
-All components use Python's `logging` module. The standard format is:
-
-```
-%(asctime)s - %(name)s - %(levelname)s - %(message)s
-```
-
-| Logger Name | Component | Key Events Logged |
-|-------------|-----------|-------------------|
-| `SourcingDaemon` | `daemon.py` | Sweep start, jobs saved count, errors, shutdown |
-| `SourcingEngine` | `worker.py` | Duplicate skips, new job saves, empty sweep warning |
-| `root` | All | Uncaught exceptions at ERROR level |
-
-### Log Levels
-
-| Level | Used For |
-|-------|---------|
-| `DEBUG` | Duplicate job skips (high volume, off by default) |
-| `INFO` | Sweep lifecycle events, job counts |
-| `WARNING` | Unexpected but recoverable states (e.g. empty DataFrame) |
-| `ERROR` | Per-sweep failures caught by Daemon (process continues) |
-| `CRITICAL` | Reserved for unrecoverable startup failures |
-
-### Future: Metrics
-
-Planned additions for scaling phase:
-- Prometheus counters: `jobs_scraped_total`, `jobs_applied_total`, `ai_calls_total`, `ai_call_latency_seconds`
-- Grafana dashboard for real-time pipeline visibility
+**Template:** Copy `.env.example` to `.env` and fill in values. The `.env` file is gitignored.
 
 ---
 
-## 10. Security & Compliance
+## 9. Security & Compliance
 
 | Concern | Mitigation |
 |---------|-----------|
-| **Secret exposure** | All API keys and DSNs loaded from env vars. `.env` is `.gitignore`d. |
-| **SQL injection** | SQLAlchemy ORM with parameterized queries. No raw SQL string interpolation. |
-| **Prompt injection** | LLM input is structured Pydantic output from the scraper, not raw user text. Ledger facts are pre-indexed at ingestion time. |
-| **ATS bot detection** | System never auto-submits to external portals. Human-in-the-loop ensures no automated form submission. |
-| **Scraping ethics** | JobSpy respects `robots.txt` rate limits. Targets publicly accessible job listing pages only. |
-| **Data at rest** | `data/ledger.md` is stored locally. No user PII is sent to external services except the OpenAI API for tailoring. |
-| **Dependency hygiene** | All dependencies pinned in `requirements.txt`. Review with `pip audit` before production deploy. |
+| **Secret exposure** | All keys from env vars. `.env` gitignored. Pydantic Settings validates at startup. |
+| **Authentication** | bcrypt password hashing + HMAC-signed session cookies with configurable secret |
+| **Rate limiting** | Exponential backoff rate limiter on login attempts (5 attempts / 5-min window) |
+| **SQL injection** | SQLAlchemy ORM with parameterized queries. No raw SQL interpolation. |
+| **CORS/XSRF** | Streamlit CORS and XSRF protection enabled in production config |
+| **Prompt injection** | LLM input is structured data from scraper, not raw user text. Ledger facts pre-indexed. |
+| **Bot detection** | System never auto-submits. Human-in-the-loop for all external portal submissions. |
+| **Data at rest** | Ledger stored per-user in DB. PII sent only to configured LLM API for tailoring. |
+| **CI/CD security** | Server IP stored as GitHub secret. SSH deploy key with limited scope. |
+
+---
+
+## 10. Observability Strategy
+
+All components use Python `logging` module with named loggers:
+
+| Logger | Component | Key Events |
+|--------|-----------|-----------|
+| `src.scrapers.worker` | SourcingEngine | Sweep start, jobs saved, title filter stats |
+| `src.scrapers.daemon` | Daemon | Cycle start, errors, shutdown |
+| `src.core.scraper` | BaseScraper | Aggregation search, dedup results |
+| `src.core.ai` | AITailor | Model cascade fallback, retry attempts |
+
+**Future:** Prometheus counters (`jobs_scraped_total`, `ai_calls_total`, `ai_call_latency_seconds`) + Grafana dashboard.
 
 ---
 
 ## 11. Testing Strategy
 
-### Test Boundaries
-
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         TEST PYRAMID                                │
-│                                                                     │
-│                            ▲                                        │
-│                           ╱ ╲    E2E (scripts/e2e_backend_mock.py) │
-│                          ╱───╲   Manual / against live DB           │
-│                         ╱─────╲                                     │
-│                        ╱───────╲  Integration Tests                │
-│                       ╱  SQLite ╲  (test_postgres_repo.py)         │
-│                      ╱  in-memory╲ Real async I/O, no PostgreSQL   │
-│                     ╱─────────────╲                                 │
-│                    ╱               ╲  Unit Tests  (all other tests) │
-│                   ╱  AsyncMock /    ╲ Isolated, no I/O             │
-│                  ╱   MockUIRepository╲                              │
-│                 ╱─────────────────────╲                             │
-└─────────────────────────────────────────────────────────────────────┘
+                        ▲
+                       ╱ ╲    E2E (manual against live DB)
+                      ╱───╲
+                     ╱─────╲  Integration (SQLite in-memory, real async I/O)
+                    ╱───────╲
+                   ╱─────────╲  Unit (AsyncMock, no I/O)
+                  ╱───────────╲
 ```
-
-### Test Files
 
 | File | Scope | Strategy |
 |------|-------|---------|
-| `test_models.py` | Pydantic models | Pure unit — no I/O |
-| `test_repository.py` | `JobRepository` ABC contract | `GoodRepo` concrete stub — verifies interface completeness |
-| `test_postgres_repo.py` | `PostgresRepository` | Integration — `sqlite+aiosqlite:///:memory:` via `pytest_asyncio` fixture |
-| `test_sourcing_engine.py` | `SourcingEngine.run_sweep()` | Unit — `AsyncMock` repository, no JobSpy calls |
-| `test_ai.py` | `AITailor.tailor_application()` | Unit — mocked `_call_openai()` |
-| `test_ledger.py` | `LedgerManager` | Unit — reads `data/ledger.md` directly |
-| `test_pdf_generator.py` | `PDFGenerator` | Unit — mocked Playwright |
-| `test_mock_ui_repo.py` | `MockUIRepository` | Unit — verifies ABC contract adherence |
+| `test_salary.py` | Salary parsing | Pure unit |
+| `test_job_quality.py` | Job filtering/matching | Pure unit |
+| `test_browser_manager.py` | BrowserManager | Unit — mocked Playwright |
+| `test_pdf_generator.py` | PDFGenerator | Unit — mocked Playwright |
 
-### Conventions
+**CI:** GitHub Actions runs `pytest --tb=short -q` on every push/PR to `master`. All tests must pass before deploy.
 
-- `pytest-asyncio` in **STRICT mode**: all async tests require `@pytest.mark.asyncio`
-- Async fixtures use `@pytest_asyncio.fixture`, not `@pytest.fixture`
-- `AsyncMock` from `unittest.mock` for async interface mocking
-- No test may reach a live external service (network, OpenAI, PostgreSQL)
+**Conventions:**
+- `pytest-asyncio` strict mode — all async tests require `@pytest.mark.asyncio`
+- No test may reach a live external service
+- In-memory SQLite for integration tests (same SQLAlchemy interface as production)
 
 ---
 
 ## 12. Deployment Topology
 
-### Local Development (default)
-```
-DATABASE_URL = sqlite+aiosqlite:///titanswarm.db   (auto-created on first run)
-OPENAI_API_KEY = <from .env>
-
-Start UI:      .venv/bin/streamlit run src/ui/app.py --server.port 8501
-Start Daemon:  python -m src.scrapers.daemon
+### Local Development
+```bash
+streamlit run src/ui/app.py          # UI on :8501
+python -m src.scrapers.daemon        # Background scraper
+# Uses SQLite by default (no DATABASE_URL needed)
 ```
 
-### Docker Compose (staging)
-```yaml
-# Planned docker-compose.yml
-services:
-  db:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: titanswarm
-      POSTGRES_USER: titan
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  ui:
-    build: .
-    command: streamlit run src/ui/app.py --server.port 8501 --server.headless true
-    environment:
-      DATABASE_URL: postgresql+asyncpg://titan:${DB_PASSWORD}@db:5432/titanswarm
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    ports:
-      - "8501:8501"
-    depends_on: [db]
-
-  daemon:
-    build: .
-    command: python -m src.scrapers.daemon
-    environment:
-      DATABASE_URL: postgresql+asyncpg://titan:${DB_PASSWORD}@db:5432/titanswarm
-      SCRAPER_ROLE: "Software Engineer Intern"
-      SCRAPER_LOCATION: "Vancouver, BC"
-      SCRAPER_INTERVAL_HOURS: "6"
-    depends_on: [db]
+### Production (Docker Compose on DigitalOcean)
+```
+┌──────────────────────────────────────────────────┐
+│  DigitalOcean Droplet (4GB RAM / 2 vCPU)         │
+│                                                    │
+│  ┌─────────────┐  ┌──────────────┐                │
+│  │ titanswarm_ui│  │titanswarm_   │                │
+│  │ (Streamlit)  │  │daemon        │                │
+│  │ :8501        │  │(background)  │                │
+│  └──────┬───────┘  └──────┬───────┘                │
+│         │                  │                        │
+│         └────────┬─────────┘                        │
+│                  ▼                                  │
+│         Docker volumes:                             │
+│         titanswarm_db, titanswarm_data,              │
+│         titanswarm_output                            │
+│                                                      │
+│  ┌──────────────────────────────────┐               │
+│  │  Nginx reverse proxy             │               │
+│  │  + Let's Encrypt (HTTPS)         │               │
+│  │  smartresume.dev → :8501          │               │
+│  └──────────────────────────────────┘               │
+└──────────────────────────────────────────────────────┘
 ```
 
-### Production
-- PostgreSQL 15 on managed cloud (e.g., Supabase, Railway, AWS RDS)
-- UI and Daemon as separate services / containers
-- `DATABASE_URL` injected via secrets manager (never plaintext env in CI/CD)
-- Connection pooling via `asyncpg` pool size tuned to Postgres `max_connections`
+### CI/CD Pipeline
+```
+Push to master → ci.yml (pytest) → deploy.yml (SSH → git pull → docker compose up)
+```
 
 ---
 
 ## 13. Failure Modes & Resilience
 
-| Component | Failure Mode | Impact | Recovery Strategy |
-|-----------|-------------|--------|-------------------|
-| **JobSpy** | Returns empty DataFrame (rate-limited / site down) | Zero jobs saved this sweep | Log warning, Daemon sleeps and retries next interval |
-| **JobSpy** | Raises exception | Sweep aborts | Daemon catches exception at sweep level, logs ERROR, continues loop |
-| **PostgresRepository** | DB unreachable at startup | Process crashes | `init_db()` raises — Daemon exits with clear error message |
-| **PostgresRepository** | DB unreachable mid-sweep | `save_job()` raises | Exception propagates to Daemon sweep handler, logged as ERROR |
-| **OpenAI API** | Rate limit / network error | Tailoring fails | `AITailor.tailor_application()` raises — UI shows error toast, job stays in `PENDING_REVIEW` |
-| **OpenAI API** | Invalid structured output | Pydantic parse fails | Returns `None` — job flagged as `ERROR` |
-| **Playwright / PDF** | Chromium unavailable | PDF generation fails | `PDFGenerator` raises — UI shows error, tailored text still available |
-| **LedgerManager** | `data/ledger.md` missing | Index build fails | Raises `FileNotFoundError` — `AITailor` catches and uses empty facts, warns in logs |
-| **FAISS** | `.search_facts()` before `build_index()` | Raises `RuntimeError` | Caught in `AITailor`, falls back to empty facts list |
+| Component | Failure Mode | Recovery |
+|-----------|-------------|----------|
+| **JobSpy** | Empty DataFrame / rate-limited | Log warning, daemon sleeps and retries next cycle |
+| **JobSpy** | Exception during scrape | Daemon catches at sweep level, logs ERROR, continues |
+| **Database** | Unreachable at startup | `init_db()` raises — process exits with clear message |
+| **Database** | Unreachable mid-sweep | Exception propagates to sweep handler, logged as ERROR |
+| **Gemini API** | 503 / overloaded | Model cascade automatically tries fallback models |
+| **Gemini API** | Rate limit | Exponential backoff retry with `tenacity` |
+| **Gemini API** | Invalid JSON output | Pydantic parse fails — job stays in current status, error shown in UI |
+| **Playwright** | Chromium unavailable | PDFGenerator raises — UI shows error toast, tailored text still usable |
+| **FAISS** | Ledger missing / empty | AITailor catches, uses empty facts, warns in logs |
+| **Auth** | Brute-force login | Rate limiter imposes exponential backoff after 5 failed attempts |
 
 ---
 
 ## 14. Development Roadmap
 
-**Legend:** ✅ Complete · 🔄 Partial / In Progress · ⏳ Planned
+**Legend:** ✅ Complete · 🔄 In Progress · ⏳ Planned
 
-| Week | Milestone | Status | Notes |
-|------|-----------|--------|-------|
-| 1 | Pydantic models (`Job`, `JobStatus`, `TailoredApplication`, `UserProfile`) | ✅ | `src/core/models.py` |
-| 1 | `JobRepository` ABC (5 abstract methods) | ✅ | `src/core/repository.py` |
-| 1 | `PostgresRepository` with dialect-aware UPSERT | ✅ | `src/infrastructure/postgres_repo.py` |
-| 2 | `SourcingEngine.run_sweep()` (async, deduplication) | ✅ | `src/scrapers/worker.py` |
-| 2 | `SourcingDaemon` with env-driven config | ✅ | `src/scrapers/daemon.py` |
-| 3 | Immutable Facts Ledger (`data/ledger.md`) | ✅ | SFU history, TitanSwarm, TitanStore projects |
-| 3 | `LedgerManager` — FAISS ingestion + similarity search | ✅ | `src/core/ledger.py` |
-| 4 | `AITailor` — strict RAG prompting, structured output | ✅ | `src/core/ai.py` |
-| 5 | `PDFGenerator` — Jinja2 + Playwright HTML-to-PDF | ✅ | `src/core/pdf_generator.py` |
-| 6 | Dispatch Terminal — Job Feed, Kanban, Preferences | ✅ | `src/ui/app.py` (aiapply.co pattern) |
-| 6 | Wire real `SourcingEngine` to Job Feed discovery | 🔄 | Currently mock data in `_run_discovery()` |
-| 6 | Wire real `PDFGenerator` to Auto-Apply button | 🔄 | Currently returns placeholder bytes |
-| 7 | Docker Compose — PostgreSQL + UI + Daemon | ⏳ | `docker-compose.yml` |
-| 7 | Concurrent Daemon workers (multi-role/location) | ⏳ | `asyncio.gather()` over multiple `run_sweep()` calls |
-| 7 | Connection pool tuning for 100+ concurrent users | ⏳ | SQLAlchemy pool config + Postgres `max_connections` |
-| 8 | Alembic migrations | ⏳ | Schema version management for production |
-| 8 | Prometheus metrics + Grafana dashboard | ⏳ | `jobs_scraped_total`, `ai_call_latency_seconds` |
-| 8 | `pip audit` + dependency CVE review | ⏳ | Before any public/cloud deployment |
+| Milestone | Status |
+|-----------|--------|
+| Pydantic domain models (Job, TailoredApplication, UserProfile, CoverLetterResult) | ✅ |
+| JobRepository ABC + PostgresRepository (dialect-aware UPSERT) | ✅ |
+| SourcingEngine with title filter, salary extraction, batch dedup | ✅ |
+| SourcingDaemon with multi-role/location concurrent sweeps | ✅ |
+| LedgerManager — FAISS ingestion + similarity search | ✅ |
+| AITailor — Gemini structured output, model cascade, hallucination guard | ✅ |
+| Cover letter generation (CoverLetterResult) | ✅ |
+| PDFGenerator — Resume + Cover Letter (Jinja2 + Playwright) | ✅ |
+| Hybrid match scoring (semantic + keyword) | ✅ |
+| GitHub + website enrichment modules | ✅ |
+| Multi-tenant auth (bcrypt + HMAC cookies + rate limiter) | ✅ |
+| Modular Streamlit UI (9 modules, page-based routing) | ✅ |
+| Centralized config (Pydantic Settings) | ✅ |
+| CI pipeline (GitHub Actions + pytest) | ✅ |
+| Docker Compose deployment + Nginx HTTPS | ✅ |
+| Alembic database migrations | ⏳ |
+| Prometheus metrics + Grafana dashboard | ⏳ |
+| Redis-backed rate limiter (multi-worker) | ⏳ |
+| `pip audit` + dependency CVE review | ⏳ |

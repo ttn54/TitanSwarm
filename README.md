@@ -1,44 +1,75 @@
-# TitanSwarm
+<p align="center">
+  <strong>⚡ TitanSwarm</strong>
+</p>
 
-**Live:** [https://smartresume.dev](https://smartresume.dev)
+<p align="center">
+  Autonomous, agentic job application Co-Pilot<br>
+  <a href="https://smartresume.dev">smartresume.dev</a>
+</p>
 
-An autonomous, agentic job application co-pilot. TitanSwarm automates the discovery, analysis, and tailoring of job applications — delivering a ready-to-submit package to the user while deliberately keeping a human in the loop for the final submission step.
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/LLM-Gemini%202.5%20Flash-orange?logo=google&logoColor=white" alt="Gemini">
+  <img src="https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white" alt="Streamlit">
+  <img src="https://img.shields.io/badge/DB-SQLite%20%7C%20PostgreSQL-336791?logo=postgresql&logoColor=white" alt="Database">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
+</p>
 
 ---
 
-## Overview
+## What is TitanSwarm?
 
-TitanSwarm operates as a background pipeline with a human-review terminal. The system handles job scraping, resume tailoring via a Retrieval-Augmented Generation (RAG) engine, ATS-optimized PDF generation, and application tracking — all without auto-submitting to external portals.
+TitanSwarm automates the discovery, analysis, and tailoring of job applications — delivering a ready-to-submit resume + cover letter package while keeping a **human in the loop** for the final submission step.
 
-**Core guarantee:** The LLM is strictly sandboxed to verified facts in the user's personal ledger. It cannot invent experience, credentials, or skills that are not present in the source data.
+The system handles 99% of the computational work (scraping, RAG-based resume tailoring, ATS-optimized PDF generation) and delivers a ready-to-submit package. Your only job is to click "Submit" on the external portal.
+
+**Core guarantees:**
+- 🔒 **Zero hallucination** — The LLM is strictly sandboxed to your personal ledger via RAG. It cannot invent experience, credentials, or skills not in your source data.
+- 🚫 **No auto-submission** — The system never submits to external portals. Every application is gated behind a human action, avoiding bot-detection flags.
+- 🏗️ **Multi-tenant** — Built for concurrent users with per-user data isolation and cookie-based auth.
 
 ---
 
 ## Architecture
 
-The system is composed of four integrated layers:
+```
+┌──────────────────────────────┐    ┌──────────────────────────────────┐
+│     SOURCING DAEMON          │    │      DISPATCH TERMINAL           │
+│  (Background job scraper)    │    │      (Streamlit Web UI)          │
+│                              │    │                                  │
+│  JobSpy → LinkedIn / Indeed  │    │  Job Feed  │  Kanban  │  Prefs   │
+└──────────────┬───────────────┘    └──────────────┬───────────────────┘
+               │                                    │
+               ▼                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    JobRepository  (ABC)                              │
+│   SQLite (dev) ←─────────────────────────→ PostgreSQL 15+ (prod)    │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+               ┌───────────────┴───────────────┐
+               ▼                               ▼
+    ┌──────────────────┐            ┌──────────────────────┐
+    │   RAG Tailor     │            │   PDF Generator      │
+    │  FAISS + Gemini  │───────────→│  Jinja2 + Playwright │
+    │  (zero halluc.)  │            │  (ATS-readable PDF)  │
+    └──────────────────┘            └──────────────────────┘
+```
 
-**1. Sourcing Daemon** (`src/scrapers/`)  
-Background worker that scrapes LinkedIn and Indeed for target roles using JobSpy. Runs on a configurable interval and stores discovered jobs to the database via the `JobRepository` interface.
+**Four integrated layers:**
 
-**2. RAG Tailor Engine** (`src/core/`)  
-Ingests the user's base resume and GitHub profile into a local FAISS vector index. When a new job is discovered, the engine retrieves the most relevant facts from the ledger and uses a Gemini LLM (`temperature=0.0`) to synthesize tailored resume bullets, a cover letter summary, and Q&A responses. No hallucination is possible because the prompt is explicitly bounded to the retrieved context.
-
-**3. PDF Generator** (`src/core/pdf_generator.py`)  
-Renders the tailored application into an ATS-readable PDF using a Jinja2 HTML template and Playwright (Chromium). Output is text-selectable — not an image — to pass ATS keyword scanning.
-
-**4. Dispatch Terminal** (`src/ui/app.py`)  
-A Streamlit web UI with three views:
-- **Job Feed** — browse newly discovered roles with match scores
-- **My Applications** — Kanban board tracking each job through its lifecycle (`DISCOVERED → PENDING_REVIEW → SUBMITTED → INTERVIEW`)
-- **Preferences** — configure target roles, locations, scraper schedule, base resume upload, and GitHub enrichment
+| Layer | Description | Files |
+|-------|-------------|-------|
+| **Sourcing Daemon** | Background worker scraping LinkedIn & Indeed via JobSpy | `src/scrapers/` |
+| **RAG Tailor Engine** | FAISS vector search + Gemini LLM for resume tailoring | `src/core/ai.py`, `src/core/ledger.py` |
+| **PDF Generator** | Jinja2 + Playwright (Chromium) for ATS-readable PDFs | `src/core/pdf_generator.py` |
+| **Dispatch Terminal** | Streamlit web UI with Job Feed, Kanban board, Preferences | `src/ui/app.py` |
 
 ---
 
 ## Technology Stack
 
 | Layer | Technology |
-|---|---|
+|-------|------------|
 | Language | Python 3.12 |
 | UI | Streamlit 1.55 |
 | Job Scraping | python-jobspy (LinkedIn, Indeed) |
@@ -48,19 +79,21 @@ A Streamlit web UI with three views:
 | LLM | Gemini 2.5 Flash Lite (primary) with model-cascade fallback |
 | PDF Rendering | Jinja2 + Playwright (Chromium) |
 | Data Validation | Pydantic v2 |
+| Auth | bcrypt + HMAC-signed session cookies |
 | Testing | pytest + pytest-asyncio |
+| CI/CD | GitHub Actions → DigitalOcean Droplet |
 
 ---
 
 ## Prerequisites
 
-- Python 3.12
+- Python 3.12+
 - A Gemini API key ([Google AI Studio](https://aistudio.google.com/))
 - Chromium (installed via Playwright)
 
 ---
 
-## Setup
+## Quick Start
 
 **1. Clone and create a virtual environment**
 
@@ -80,49 +113,47 @@ playwright install chromium
 
 **3. Configure environment variables**
 
-Copy the example and fill in your API key:
-
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` and add your Gemini API key:
 
-```
+```env
 AI_PROVIDER=gemini
 GEMINI_API_KEY=your_key_here
-# DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/titanswarm
 ```
 
-If `DATABASE_URL` is not set, the system defaults to a local SQLite database (`titanswarm.db`).
+If `DATABASE_URL` is not set, the system defaults to a local SQLite database.
 
----
-
-## Running the Application
-
-**Start the Dispatch Terminal (UI):**
+**4. Start the application**
 
 ```bash
+# Start the web UI
 streamlit run src/ui/app.py
-```
 
-Open [http://localhost:8501](http://localhost:8501).
-
-**Start the Sourcing Daemon (background scraper):**
-
-```bash
+# In a separate terminal, start the background scraper
 python -m src.scrapers.daemon
 ```
 
-The daemon reads its configuration from environment variables or from the values saved via the Preferences page in the UI.
+Open [http://localhost:8501](http://localhost:8501) and create an account.
+
+---
+
+## Configuration
+
+All configuration is via environment variables (set in `.env` or injected at runtime):
 
 | Variable | Default | Description |
-|---|---|---|
+|----------|---------|-------------|
+| `AI_PROVIDER` | `gemini` | LLM backend: `gemini` or `openai` |
+| `GEMINI_API_KEY` | — | Google Gemini API key (required if provider=gemini) |
 | `DATABASE_URL` | `sqlite+aiosqlite:///titanswarm.db` | Database connection string |
-| `SCRAPER_INTERVAL_HOURS` | `12` | Hours between scrape cycles |
-| `SCRAPER_RESULTS_WANTED` | `25` | Jobs fetched per role per location per sweep |
-| `SCRAPER_ROLES` | _(set in UI)_ | Target job titles, pipe-separated |
-| `SCRAPER_LOCATIONS` | _(set in UI)_ | Target locations, pipe-separated |
+| `SCRAPER_ROLES` | `Software Engineer Intern` | Target job titles (pipe-separated) |
+| `SCRAPER_LOCATIONS` | `Vancouver, BC` | Target locations (pipe-separated) |
+| `SCRAPER_INTERVAL_HOURS` | `12` | Hours between background scrape cycles |
+| `SCRAPER_RESULTS_WANTED` | `25` | Jobs fetched per role/location per sweep |
+| `SESSION_SECRET` | *(random per-process)* | HMAC secret for signing session cookies |
 
 ---
 
@@ -132,7 +163,7 @@ The daemon reads its configuration from environment variables or from the values
 pytest --tb=short -q
 ```
 
-All 104 tests must pass before any merge.
+Tests use in-memory SQLite and mocked external APIs — no network calls, no API keys required.
 
 ---
 
@@ -141,98 +172,110 @@ All 104 tests must pass before any merge.
 ```
 src/
   core/
-    ai.py              # RAG tailor engine and hallucination guard
-    ledger.py          # Personal ledger manager + FAISS index
-    models.py          # Pydantic domain models (Job, JobStatus, TailoredApplication)
-    pdf_generator.py   # Jinja2 + Playwright PDF renderer
-    repository.py      # JobRepository abstract base class
-    env_writer.py      # Safe .env key upsert writer
+    ai.py               # RAG tailor engine, hallucination guard, model cascade
+    ledger.py            # Personal ledger manager + FAISS index
+    models.py            # Pydantic domain models (Job, TailoredApplication, etc.)
+    pdf_generator.py     # Jinja2 + Playwright PDF renderer
+    repository.py        # JobRepository abstract base class
+    matching.py          # Hybrid semantic + keyword match scoring
+    github_enricher.py   # GitHub REST API repo/README fetcher
+    website_enricher.py  # Portfolio website scraper + Gemini extractor
+    env_writer.py        # Safe .env key upsert utility
+    scraper.py           # Base scraper abstraction
+    templates/
+      resume.html        # ATS-optimized resume HTML template
   infrastructure/
-    titanstore.py      # SQLAlchemy async repository implementation
+    postgres_repo.py     # SQLAlchemy async repository (SQLite + PostgreSQL)
+    browser.py           # Singleton Playwright browser pool
   scrapers/
-    daemon.py          # Sourcing daemon process
-    worker.py          # SourcingEngine (JobSpy wrapper)
+    daemon.py            # Multi-tenant sourcing daemon process
+    worker.py            # SourcingEngine (JobSpy wrapper + title filter)
   ui/
-    app.py             # Streamlit Dispatch Terminal
+    app.py               # Streamlit Dispatch Terminal
+    mock_repo.py         # In-memory repository for testing
 data/
-  ledger.md            # Personal knowledge base (resume + GitHub projects)
-docs/
-  plans/               # Architecture and design documents
-tests/                 # Full test suite (pytest-asyncio)
+  ledger.md              # Personal knowledge base (resume + GitHub projects)
+tests/                   # Full test suite (pytest-asyncio)
 ```
-
----
-
-## Key Design Decisions
-
-**No auto-submission.** The system never submits to external job portals on behalf of the user. This avoids bot-detection flags and maintains the user's control over every application sent.
-
-**Strict RAG, zero hallucination.** The LLM prompt is constructed exclusively from chunks retrieved from `data/ledger.md`. The prompt explicitly instructs the model to refuse to invent any fact not present in the retrieved context.
-
-**Repository pattern.** No component imports a database driver directly. All persistence goes through the `JobRepository` ABC (`src/core/repository.py`), making the storage layer fully swappable between SQLite and PostgreSQL without touching business logic.
 
 ---
 
 ## Deployment
 
-TitanSwarm ships with a Docker Compose setup for one-command production deployment.
-
-**Live instance:** [https://smartresume.dev](https://smartresume.dev)
+TitanSwarm ships with Docker Compose for one-command deployment.
 
 ### Deploy with Docker
 
-**1. Copy and configure your environment file on the server:**
-
 ```bash
+# 1. Configure environment on the server
 scp .env root@your-server-ip:/root/TitanSwarm/.env
-```
 
-**2. Build and start both containers:**
-
-```bash
+# 2. Build and start
 docker compose up -d --build
 ```
 
 This starts two services:
+
 | Service | Description |
-|---|---|
+|---------|-------------|
 | `titanswarm_ui` | Streamlit UI on port 8501 |
 | `titanswarm_daemon` | Background job scraper |
 
-Data is persisted across restarts via three Docker volumes: `titanswarm_db`, `titanswarm_data`, `titanswarm_output`.
+Data is persisted via Docker volumes: `titanswarm_db`, `titanswarm_data`, `titanswarm_output`.
 
-### Securing with HTTPS (Nginx + Let's Encrypt)
-To prevent modern browsers from blocking the native PDF auto-download mechanism (the "Keep or Discard" warning), the app must be served over HTTPS.
+### HTTPS (Nginx + Let's Encrypt)
 
-1. **Point your domain** (e.g. `smartresume.dev`) to your server IP.
-2. **Install Nginx & Certbot**: `sudo apt install nginx certbot python3-certbot-nginx`
-3. **Configure Nginx** to act as a reverse proxy for Streamlit's WebSocket connection:
-   ```nginx
-   server {
-       listen 80;
-       server_name smartresume.dev www.smartresume.dev;
-       location / {
-           proxy_pass http://127.0.0.1:8501;
-           proxy_http_version 1.1;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header Host $host;
-           proxy_set_header Upgrade $http_upgrade;
-           proxy_set_header Connection "upgrade";
-           proxy_read_timeout 86400;
-       }
-   }
-   ```
-4. **Issue SSL Certificate**: `sudo certbot --nginx -d smartresume.dev -d www.smartresume.dev`
+```nginx
+server {
+    listen 80;
+    server_name smartresume.dev www.smartresume.dev;
+    location / {
+        proxy_pass http://127.0.0.1:8501;
+        proxy_http_version 1.1;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+    }
+}
+```
 
-### Continuous Deployment (GitHub Actions)
+```bash
+sudo certbot --nginx -d smartresume.dev -d www.smartresume.dev
+```
 
-Every push to the `master` branch automatically deploys to the DigitalOcean Droplet via the workflow at [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
+### Continuous Deployment
 
-To set this up on your own server:
-1. Generate a passphrase-free SSH key: `ssh-keygen -t ed25519 -f ~/.ssh/deploy_key -N ""`
-2. Copy the public key to your server: `ssh-copy-id -i ~/.ssh/deploy_key.pub root@your-server-ip`
-3. Add the private key content as a GitHub repository secret named `DROPLET_SSH_KEY`
-4. Update the `host` field in `deploy.yml` to your server IP
+Every push to `master` triggers automated deployment via [GitHub Actions](.github/workflows/deploy.yml). Tests run first via the [CI workflow](.github/workflows/ci.yml) — all tests must pass before deploy.
+
+**Setup:**
+1. Generate a deploy SSH key: `ssh-keygen -t ed25519 -f ~/.ssh/deploy_key -N ""`
+2. Add the public key to the server: `ssh-copy-id -i ~/.ssh/deploy_key.pub root@your-server-ip`
+3. Set GitHub repository secrets:
+   - `DROPLET_SSH_KEY` — private key content
+   - `DROPLET_HOST` — server IP address
+
+---
+
+## Key Design Decisions
+
+**No auto-submission.** The system never submits to external job portals. This avoids bot-detection flags and keeps the user in control.
+
+**Strict RAG, zero hallucination.** The LLM prompt is constructed exclusively from FAISS-retrieved chunks of your personal ledger. The model is explicitly instructed to refuse to invent any fact not present in context. Temperature is set to 0.2 for deterministic output.
+
+**Repository pattern.** All persistence goes through the `JobRepository` ABC. No component imports a database driver directly — storage is fully swappable between SQLite and PostgreSQL without touching business logic.
+
+**Model cascade.** If the primary Gemini model returns 503, the system automatically falls through a cascade of fallback models to ensure availability.
+
+---
+
+## Contributing
+
+1. Fork the repo and create a feature branch
+2. Ensure all tests pass: `pytest --tb=short -q`
+3. Follow existing patterns (async-first, Pydantic contracts, repository pattern)
+4. Submit a pull request to `master`
 
 ---
 
