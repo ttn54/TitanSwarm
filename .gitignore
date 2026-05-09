@@ -2,9 +2,17 @@ agents/
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 docs/plans/
 ARCHITECTURE.md
 StrictAgent.agent.md
 example/real_scraped_data.json
 .env
 output/
+test_output/
+session.json
+*.db
+*.db-journal
+*.db-wal
+data/faiss.index
+.DS_Store
