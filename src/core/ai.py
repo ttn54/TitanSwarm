@@ -636,6 +636,9 @@ _SYSTEM_PROMPT_TEMPLATE = (
     "  JD domain = FULLSTACK / GENERAL: count all tech keyword matches normally.\n\n"
     "STEP D — Rank all projects by score. Select top 3. Projects with 0 overlap = excluded.\n"
     "STEP E — Set keyword_overlap_count on each selected project to its actual count.\n\n"
+    "CRITICAL: If the candidate's context has NO '## GitHub Projects:' section AND no\n"
+    "'TECHNICAL PROJECTS' section, return an EMPTY [] tailored_projects list.  Work\n"
+    "experience entries are NOT projects — do not repurpose them.\n\n"
 
     "══════════════════════════════════════════════════════\n"
     "RULE 2 — TECH FIELD PER PROJECT\n"
@@ -833,6 +836,15 @@ class AITailor:
                 "Regenerate with concrete, fact-based bullets only. Do not use [X], [Y], [Z], or template phrases."
             )
             result = await self._call_llm(system_prompt, retry_prompt)
+        # ═══ Strip projects that are actually work-experience duplicates ═══
+        # When the candidate has no real projects, some LLMs repurpose work
+        # entries as "projects."  Remove any project whose title matches a
+        # work experience entry (case-insensitive).
+        _exp_titles = {e.title.strip().lower() for e in result.tailored_experience if e.title}
+        result.tailored_projects = [
+            p for p in result.tailored_projects
+            if p.title.strip().lower() not in _exp_titles
+        ]
         # Hard cap: never show more than 3 projects regardless of AI output
         result.tailored_projects = result.tailored_projects[:3]
         # Sort by overlap descending so the best-matching project is always first
