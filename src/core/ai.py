@@ -836,19 +836,15 @@ class AITailor:
                 "Regenerate with concrete, fact-based bullets only. Do not use [X], [Y], [Z], or template phrases."
             )
             result = await self._call_llm(system_prompt, retry_prompt)
-        # ═══ Strip projects that are actually work-experience duplicates ═══
-        # When the candidate has no real projects, the LLM repurposes work
-        # entries as "projects" using the pattern "Job Title at Company".
-        # Catch these by checking: (1) any work title appears in project title,
-        # AND (2) the title contains " at " — the telltale fabrication pattern.
-        _exp_titles = [e.title.strip().lower() for e in result.tailored_experience if e.title]
-        result.tailored_projects = [
-            p for p in result.tailored_projects
-            if not (
-                any(wt in p.title.strip().lower() for wt in _exp_titles)
-                and " at " in p.title.strip().lower()
-            )
-        ]
+        # ═══ If the source resume has NO projects section, force empty ═══
+        # The LLM may fabricate projects from work experience when it has
+        # nothing real to work with.  Detect this deterministically: look for
+        # project section markers in the resume text that was fed to the LLM.
+        _has_real_projects = bool(
+            re.search(r'## GitHub Projects:|TECHNICAL PROJECTS|### [A-Z]', resume_text)
+        )
+        if not _has_real_projects:
+            result.tailored_projects = []
         # Hard cap: never show more than 3 projects regardless of AI output
         result.tailored_projects = result.tailored_projects[:3]
         # Sort by overlap descending so the best-matching project is always first

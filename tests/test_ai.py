@@ -25,10 +25,15 @@ def test_missing_api_key_raises_error():
             AITailor(ledger_manager=mock_ledger)
 
 @pytest.mark.asyncio
-async def test_ai_tailor_returns_structured_output(sample_job):
+async def test_ai_tailor_returns_structured_output(sample_job, tmp_path):
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake_test_key"}):
         mock_ledger = MagicMock(spec=LedgerManager)
-        mock_ledger.ledger_path = "data/ledger.md"
+        _real_path = str(tmp_path / "ledger.md")
+        (tmp_path / "ledger.md").write_text(
+            "## Technical Skills\n* Python\n"
+            "## GitHub Projects:\n### TitanStore\nBuilt distributed KV store\n"
+        )
+        mock_ledger.ledger_path = _real_path
         mock_ledger.search_facts.return_value = [
             "Zen wrote TitanSwarm in Python.",
             "Zen built TitanStore with Go."
@@ -93,7 +98,10 @@ def _make_tailor(tmp_path):
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text(
+            "## Technical Skills\n* Python\n"
+            "## GitHub Projects:\n### TestProject\nTest desc\n"
+        )
         with patch("google.genai.Client"):
             return AITailor(ledger_manager=mock_ledger)
 
@@ -159,7 +167,7 @@ async def test_user_prompt_uses_keyword_overlap_for_project_scoring(tmp_path, sa
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -426,7 +434,7 @@ async def test_non_top_low_overlap_project_trimmed_to_three_bullets(tmp_path, sa
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -451,7 +459,7 @@ async def test_third_ranked_project_trimmed_to_two_bullets_even_if_high_overlap(
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -475,7 +483,7 @@ async def test_top_project_keeps_all_bullets_regardless_of_overlap(tmp_path, sam
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -499,7 +507,7 @@ async def test_high_overlap_projects_keep_four_bullets(tmp_path, sample_job):
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -520,7 +528,7 @@ async def test_system_prompt_forbids_skills_not_in_context(tmp_path, sample_job)
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -548,7 +556,7 @@ async def test_system_prompt_allows_imported_resume_projects_as_fallback(tmp_pat
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -574,7 +582,7 @@ async def test_json_schema_hint_includes_keyword_overlap_count(tmp_path, sample_
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -605,7 +613,7 @@ async def test_json_schema_hint_includes_missing_skills(tmp_path, sample_job):
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -624,7 +632,7 @@ async def test_system_prompt_step_b_covers_technical_projects_section(tmp_path, 
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
@@ -727,7 +735,7 @@ def test_system_prompt_languages_rule(tmp_path, sample_job):
     with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake"}):
         mock_ledger = MagicMock(spec=LedgerManager)
         mock_ledger.ledger_path = str(tmp_path / "ledger.md")
-        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n")
+        (tmp_path / "ledger.md").write_text("## Technical Skills\n* Python\n## GitHub Projects:\n### TestProject\nTest desc\n")
         with patch("google.genai.Client"):
             tailor = AITailor(ledger_manager=mock_ledger)
 
