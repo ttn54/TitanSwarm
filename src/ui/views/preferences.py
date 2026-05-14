@@ -286,8 +286,8 @@ def _render_resume_upload(repo, tailor, profile, user_id):
                     new_name     = (lines[0] if lines else "") or pf_cur.name
                     new_email    = (email_m.group(0)    if email_m    else "") or pf_cur.email
                     new_phone    = (phone_m.group(0)    if phone_m    else "") or pf_cur.phone
-                    new_github   = (f"github.com/{github_m.group(1)}"   if github_m   else "") or pf_cur.github
-                    new_linkedin = (f"linkedin.com/in/{linkedin_m.group(1)}" if linkedin_m else "") or pf_cur.linkedin
+                    new_github   = (f"github.com/{github_m.group(1)}"   if github_m   else "") or ""
+                    new_linkedin = (f"linkedin.com/in/{linkedin_m.group(1)}" if linkedin_m else "") or ""
                     st.session_state["_pf_pending"] = {
                         "_pf_name":     new_name,
                         "_pf_email":    new_email,
@@ -308,7 +308,21 @@ def _render_resume_upload(repo, tailor, profile, user_id):
                     _existing_ledger = run_async(repo.get_ledger(user_id))
                     _marker = "## Imported Resume:"
                     _base = _existing_ledger.split(_marker)[0].rstrip() if _existing_ledger else ""
-                    _new_ledger = _base + f"\n\n{_marker} {uploaded.name}\n\n{text}"
+                    # ═══ Strip legacy sections that may belong to another user ═══
+                    # When the old init_ai_stack() fell back to data/ledger.md (Zen's file),
+                    # the DB ledger would accumulate Zen's ## GitHub Projects and
+                    # ## Technical Skills.  Resume upload MUST clean these out so the
+                    # AI only has this user's own facts.
+                    for _bad_marker in ("## GitHub Projects:", "## Technical Skills"):
+                        if _bad_marker in _base:
+                            _base = _base.split(_bad_marker)[0]
+                    _base = _base.rstrip()
+                    # Always include Manual Profile if the user explicitly saved one.
+                    _mp_block = ""
+                    _mp_marker = "## Manual Profile:"
+                    if _mp_marker in _existing_ledger:
+                        _mp_block = "\n\n" + _mp_marker + _existing_ledger.split(_mp_marker, 1)[1].split("\n## ")[0].rstrip()
+                    _new_ledger = _base + _mp_block + f"\n\n{_marker} {uploaded.name}\n\n{text}"
                     run_async(repo.save_ledger(user_id, _new_ledger))
                     if tailor:
                         _lm_new = LedgerManager.from_content(_new_ledger, db_path="data/faiss.index")
@@ -423,6 +437,11 @@ def _render_save_edu_exp_button(repo, tailor, user_id):
                 _cur_ledger_m = run_async(repo.get_ledger(user_id))
                 _m_marker = "## Manual Profile:"
                 _base_m = _cur_ledger_m.split(_m_marker)[0].rstrip() if _cur_ledger_m else ""
+                # Strip legacy sections from other users (same guard as resume upload).
+                for _bad_marker in ("## GitHub Projects:", "## Technical Skills"):
+                    if _bad_marker in _base_m:
+                        _base_m = _base_m.split(_bad_marker)[0]
+                _base_m = _base_m.rstrip()
                 _new_ledger_m = _base_m + f"\n\n{_m_marker}\n\n{_manual_block}"
                 run_async(repo.save_ledger(user_id, _new_ledger_m))
                 if tailor:
