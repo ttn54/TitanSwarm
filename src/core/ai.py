@@ -837,13 +837,17 @@ class AITailor:
             )
             result = await self._call_llm(system_prompt, retry_prompt)
         # ═══ Strip projects that are actually work-experience duplicates ═══
-        # When the candidate has no real projects, some LLMs repurpose work
-        # entries as "projects."  Remove any project whose title matches a
-        # work experience entry (case-insensitive).
-        _exp_titles = {e.title.strip().lower() for e in result.tailored_experience if e.title}
+        # When the candidate has no real projects, the LLM repurposes work
+        # entries as "projects" using the pattern "Job Title at Company".
+        # Catch these by checking: (1) any work title appears in project title,
+        # AND (2) the title contains " at " — the telltale fabrication pattern.
+        _exp_titles = [e.title.strip().lower() for e in result.tailored_experience if e.title]
         result.tailored_projects = [
             p for p in result.tailored_projects
-            if p.title.strip().lower() not in _exp_titles
+            if not (
+                any(wt in p.title.strip().lower() for wt in _exp_titles)
+                and " at " in p.title.strip().lower()
+            )
         ]
         # Hard cap: never show more than 3 projects regardless of AI output
         result.tailored_projects = result.tailored_projects[:3]
