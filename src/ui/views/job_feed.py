@@ -352,8 +352,8 @@ def _handle_tailor(job, repo, profile, tailor, pdf_gen, err_key, _dl_fname, user
             if _db_ledger_content:
                 _structured = parse_ledger_for_pdf(content=_db_ledger_content)
             else:
-                _fallback_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-                _structured = parse_ledger_for_pdf(_fallback_path)
+                # No ledger saved for this user yet — rely on profile fields only.
+                _structured = {"education": [], "experience": []}
             _pi = st.session_state.profile
             user_ledger = {
                 "personal_info": {

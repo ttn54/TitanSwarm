@@ -113,13 +113,14 @@ def init_ai_stack(user_id: int):
         if _ledger_content:
             _lm = LedgerManager.from_content(_ledger_content, db_path="data/faiss.index")
         else:
-            _ledger_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-            _lm = LedgerManager(ledger_path=_ledger_path, db_path="data/faiss.index")
+            # New user with no ledger yet — use an empty ledger.
+            # NEVER fall back to data/ledger.md (that file belongs to user 1 / Zen).
+            _lm = LedgerManager.from_content("", db_path="data/faiss.index")
         _lm.model = st.session_state.st_model   # inject — skip second model load
         try:
             _lm.build_index()
-        except FileNotFoundError:
-            pass  # ledger not yet created — tailor will show empty facts warning
+        except (FileNotFoundError, ValueError):
+            pass  # empty ledger — tailor will show empty facts warning
         try:
             st.session_state.tailor = AITailor(ledger_manager=_lm)
         except ValueError:
@@ -138,8 +139,7 @@ def init_resume_cache(user_id: int):
         if _ledger_content_for_cache:
             st.session_state.resume_text_cache = _parse_ledger_as_resume(content=_ledger_content_for_cache)
         else:
-            # Fallback to file for first-run before any ledger saved
-            _lp_match = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ledger.md")
-            st.session_state.resume_text_cache = _parse_ledger_as_resume(_lp_match) if os.path.exists(_lp_match) else ""
+            # Empty ledger for new users — NEVER fall back to data/ledger.md
+            st.session_state.resume_text_cache = ""
         # Also cache raw ledger so other pages can read it without an extra DB round-trip
         st.session_state["_ledger_raw"] = _ledger_content_for_cache or ""
