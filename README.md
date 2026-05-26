@@ -282,3 +282,4 @@ Every push to `master` triggers automated deployment via [GitHub Actions](.githu
 ## License
 
 MIT
+
