@@ -14,4 +14,4 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: root
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          script: cd TitanSwarm && git pull origin master && docker compose up -d --build
+          script: cd TitanSwarm && git fetch origin && git reset --hard origin/master && docker compose up -d --build
