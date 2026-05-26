@@ -14,4 +14,11 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: root
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          script: cd TitanSwarm && git fetch origin && git reset --hard origin/master && docker compose up -d --build
+          script: |
+            set -e
+            cd TitanSwarm
+            git fetch origin
+            git reset --hard origin/master
+            [ -f .env ] || { echo "ERROR: .env missing on server"; exit 1; }
+            docker compose up -d --build
+            docker ps --format 'table {{.Names}}\t{{.Status}}'
