@@ -11,16 +11,12 @@ jobs:
     steps:
       - name: Deploy to Droplet via SSH
         uses: appleboy/ssh-action@v1.0.3
-        env:
-          ENV_CONTENT: ${{ secrets.ENV_FILE }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: root
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          envs: ENV_CONTENT
           script: |
             cd TitanSwarm
             git pull origin master
-            echo "$ENV_CONTENT" > .env
             docker compose up -d --build
 
