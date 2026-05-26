@@ -1,4 +1,4 @@
-name: Production Deploy
+name: Deploy to DigitalOcean
 
 on:
   push:
