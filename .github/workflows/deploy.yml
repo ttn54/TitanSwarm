@@ -20,5 +20,7 @@ jobs:
           script: |
             cd TitanSwarm
             git pull origin master
+            # Ensure .env exists (gitignored, stored in GitHub Secret)
+            echo "${{ secrets.ENV_FILE }}" > .env
             docker compose up -d --build
 
