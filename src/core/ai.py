@@ -266,7 +266,20 @@ def _parse_ledger_as_resume(ledger_path: str = "", *, content: str | None = None
             return f"{github_block}\n\n{resume_body}"
         return resume_body
 
-    # No resume uploaded yet — return the whole ledger as context
+    # No resume uploaded yet — return ledger content but STRIP any GitHub Projects
+    # section that may have leaked from another user's data (cross-tenant contamination).
+    # GitHub projects without an imported resume give the LLM zero work-experience
+    # context and cause it to fabricate a resume around someone else's projects.
+    if github_block:
+        # Return everything except the GitHub Projects section
+        before_gh = content.split(_GITHUB_MARKER, 1)[0].strip()
+        # Also grab anything after the GitHub block (e.g. Manual Profile placed after)
+        after_gh = content.split(_GITHUB_MARKER, 1)[1]
+        next_section = re.search(r"\n## [A-Za-z][^\n]+:", after_gh)
+        trailing = after_gh[next_section.start():].strip() if next_section else ""
+        if before_gh or trailing:
+            return f"{before_gh}\n\n{trailing}".strip()
+        return ""
     return content.strip()
 
 
@@ -840,8 +853,11 @@ class AITailor:
         # The LLM may fabricate projects from work experience when it has
         # nothing real to work with.  Detect this deterministically: look for
         # project section markers in the resume text that was fed to the LLM.
+        # NOTE: Do NOT match arbitrary '### X' headings — pdfplumber extraction
+        # can produce markdown-style headers for ANY section (e.g. '### Software
+        # Engineer'), which would false-positive and let hallucinations through.
         _has_real_projects = bool(
-            re.search(r'## GitHub Projects:|TECHNICAL PROJECTS|### [A-Z]', resume_text)
+            re.search(r'## GitHub Projects:|TECHNICAL PROJECTS', resume_text)
         )
         if not _has_real_projects:
             result.tailored_projects = []
