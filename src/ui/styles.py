@@ -139,7 +139,7 @@ div[data-testid="stRadio"] div[aria-checked="true"] label {
 /* ── Inputs ── */
 input, textarea, .stSelectbox > div {
     border-radius: 8px !important; border: 1.5px solid #e2e8f0 !important;
-    font-size: 0.875rem !important; color: #1e293b !important;
+    font-size: 0.875rem !important;
 }
 input:focus, textarea:focus { border-color: #6366f1 !important; box-shadow: 0 0 0 3px rgba(99,102,241,.12) !important; outline: none !important; }
 label { font-size: 0.8rem !important; font-weight: 600 !important; color: #374151 !important; }
@@ -191,3 +191,28 @@ def inject_styles():
     """Inject global CSS into the Streamlit page."""
     import streamlit as st
     st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+    # Force light mode — override any manual dark mode toggle
+    st.markdown("""
+    <script>
+    (function() {
+        // Force Streamlit to stay in light mode regardless of user toggle
+        const forceLight = () => {
+            const app = window.parent.document.querySelector('.stApp');
+            if (app) {
+                app.setAttribute('data-theme', 'light');
+                app.classList.remove('dark');
+                app.classList.add('light');
+            }
+            // Override localStorage to prevent persistence
+            try {
+                const key = Object.keys(localStorage).find(k => k.includes('theme'));
+                if (key) localStorage.setItem(key, 'light');
+            } catch(e) {}
+        };
+        // Run immediately and watch for changes
+        forceLight();
+        new MutationObserver(forceLight).observe(document.body, {attributes: true, subtree: true, attributeFilter: ['data-theme', 'class']});
+        new MutationObserver(forceLight).observe(window.parent.document.body, {attributes: true, subtree: true, attributeFilter: ['data-theme', 'class']});
+    })();
+    </script>
+    """, unsafe_allow_html=True)
