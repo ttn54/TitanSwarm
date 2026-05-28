@@ -19,8 +19,9 @@ jobs:
             cd TitanSwarm
             git fetch origin && git reset --hard origin/master
             [ -f .env ] || { echo "ERROR: .env missing"; exit 1; }
-            # Purge stale containers to avoid name conflicts
+            # Stop first (defeats restart:unless-stopped), then remove
             docker compose down --remove-orphans 2>/dev/null || true
+            docker stop titanswarm_ui titanswarm_daemon 2>/dev/null || true
             docker rm -f titanswarm_ui titanswarm_daemon 2>/dev/null || true
             docker compose up -d --build
             docker ps --format '{{.Names}}  {{.Status}}'
