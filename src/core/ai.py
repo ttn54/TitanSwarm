@@ -263,23 +263,18 @@ def _parse_ledger_as_resume(ledger_path: str = "", *, content: str | None = None
         resume_body = content.split(_RESUME_MARKER, 1)[1].strip()
         # If resume already contains the GitHub block (Case A), no need to prepend
         if github_block and _GITHUB_MARKER not in resume_body:
-            return f"{github_block}\n\n{resume_body}"
+            # Only prepend GitHub Projects if the resume body itself has a
+            # projects section.  If the user's resume has no projects, injecting
+            # GitHub Projects would fabricate a section the user didn't intend —
+            # and in multi-tenant scenarios could leak another user's repos.
+            _resume_has_own_projects = bool(
+                re.search(r'TECHNICAL PROJECTS|## GitHub Projects:', resume_body)
+            )
+            if _resume_has_own_projects:
+                return f"{github_block}\n\n{resume_body}"
         return resume_body
 
-    # No resume uploaded yet — return ledger content but STRIP any GitHub Projects
-    # section that may have leaked from another user's data (cross-tenant contamination).
-    # GitHub projects without an imported resume give the LLM zero work-experience
-    # context and cause it to fabricate a resume around someone else's projects.
-    if github_block:
-        # Return everything except the GitHub Projects section
-        before_gh = content.split(_GITHUB_MARKER, 1)[0].strip()
-        # Also grab anything after the GitHub block (e.g. Manual Profile placed after)
-        after_gh = content.split(_GITHUB_MARKER, 1)[1]
-        next_section = re.search(r"\n## [A-Za-z][^\n]+:", after_gh)
-        trailing = after_gh[next_section.start():].strip() if next_section else ""
-        if before_gh or trailing:
-            return f"{before_gh}\n\n{trailing}".strip()
-        return ""
+    # No resume uploaded yet — return the whole ledger as context
     return content.strip()
 
 
