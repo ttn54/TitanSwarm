@@ -270,70 +270,78 @@ def _render_resume_upload(repo, tailor, profile, user_id):
             st.info("No resume uploaded yet.")
         uploaded = st.file_uploader("PDF", type=["pdf"], label_visibility="collapsed")
         if uploaded and st.button("📥 Ingest Resume into Ledger", use_container_width=True):
-            try:
-                import pdfplumber, io
-                with pdfplumber.open(io.BytesIO(uploaded.read())) as pdf:
-                    text = "\n".join(page.extract_text() or "" for page in pdf.pages).strip()
-                if not text:
-                    st.error("Could not extract text from this PDF. Make sure it is not a scanned image.")
+            # ── Size + format validation ──────────────────────────────────
+            MAX_PDF_BYTES = 10 * 1024 * 1024  # 10 MB
+            if uploaded.size > MAX_PDF_BYTES:
+                st.error(f"File too large ({uploaded.size / 1024 / 1024:.1f} MB). Maximum is 10 MB.")
+            elif uploaded.size < 4:
+                st.error("File is empty or too small to be a valid PDF.")
+            else:
+                _first_bytes = uploaded.read(4)
+                uploaded.seek(0)  # reset for pdfplumber
+                if not _first_bytes.startswith(b'%PDF'):
+                    st.error("Not a valid PDF file. Please upload a real PDF resume.")
                 else:
-                    lines = [l.strip() for l in text.splitlines() if l.strip()]
-                    email_m    = re.search(r'[\w.+-]+@[\w.-]+\.[a-z]{2,}', text, re.IGNORECASE)
-                    phone_m    = re.search(r'(\+?1[\s.-])?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}', text)
-                    github_m   = re.search(r'github\.com/([\w-]+)', text, re.IGNORECASE)
-                    linkedin_m = re.search(r'linkedin\.com/in/([\w-]+)', text, re.IGNORECASE)
-                    pf_cur = st.session_state.profile
-                    new_name     = (lines[0] if lines else "") or pf_cur.name
-                    new_email    = (email_m.group(0)    if email_m    else "") or pf_cur.email
-                    new_phone    = (phone_m.group(0)    if phone_m    else "") or pf_cur.phone
-                    new_github   = (f"github.com/{github_m.group(1)}"   if github_m   else "") or ""
-                    new_linkedin = (f"linkedin.com/in/{linkedin_m.group(1)}" if linkedin_m else "") or ""
-                    st.session_state["_pf_pending"] = {
-                        "_pf_name":     new_name,
-                        "_pf_email":    new_email,
-                        "_pf_phone":    new_phone,
-                        "_pf_github":   new_github,
-                        "_pf_linkedin": new_linkedin,
-                    }
-                    _upload_profile = UserProfile(
-                        name=new_name, email=new_email, phone=new_phone,
-                        github=new_github, linkedin=new_linkedin,
-                        base_summary=pf_cur.base_summary,
-                        skills=pf_cur.skills,
-                        pref_role=pf_cur.pref_role,
-                        pref_location=pf_cur.pref_location,
-                    )
-                    st.session_state.profile = _upload_profile
-                    run_async(repo.save_profile(_upload_profile, user_id=user_id))
-                    _existing_ledger = run_async(repo.get_ledger(user_id))
-                    _marker = "## Imported Resume:"
-                    _base = _existing_ledger.split(_marker)[0].rstrip() if _existing_ledger else ""
-                    # ═══ Strip legacy sections that may belong to another user ═══
-                    # When the old init_ai_stack() fell back to data/ledger.md (Zen's file),
-                    # the DB ledger would accumulate Zen's ## GitHub Projects and
-                    # ## Technical Skills.  Resume upload MUST clean these out so the
-                    # AI only has this user's own facts.
-                    for _bad_marker in ("## GitHub Projects:", "## Technical Skills"):
-                        if _bad_marker in _base:
-                            _base = _base.split(_bad_marker)[0]
-                    _base = _base.rstrip()
-                    # Always include Manual Profile if the user explicitly saved one.
-                    _mp_block = ""
-                    _mp_marker = "## Manual Profile:"
-                    if _mp_marker in _existing_ledger:
-                        _mp_block = "\n\n" + _mp_marker + _existing_ledger.split(_mp_marker, 1)[1].split("\n## ")[0].rstrip()
-                    _new_ledger = _base + _mp_block + f"\n\n{_marker} {uploaded.name}\n\n{text}"
-                    run_async(repo.save_ledger(user_id, _new_ledger))
-                    if tailor:
-                        _lm_new = LedgerManager.from_content(_new_ledger, db_path="data/faiss.index")
-                        _lm_new.model = st.session_state.st_model
-                        _lm_new.build_index()
-                        st.session_state.tailor.ledger = _lm_new
-                    _invalidate_caches()
-                    st.toast(f"{uploaded.name} ingested ✓  Profile fields auto-filled above.", icon="✅")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Resume ingestion failed: {e}")
+                    try:
+                        import pdfplumber, io
+                        with pdfplumber.open(io.BytesIO(uploaded.read())) as pdf:
+                            text = "\n".join(page.extract_text() or "" for page in pdf.pages).strip()
+                        if not text:
+                            st.error("Could not extract text from this PDF. Make sure it is not a scanned image.")
+                        else:
+                            lines = [l.strip() for l in text.splitlines() if l.strip()]
+                            email_m    = re.search(r'[\w.+-]+@[\w.-]+\.[a-z]{2,}', text, re.IGNORECASE)
+                            phone_m    = re.search(r'(\+?1[\s.-])?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}', text)
+                            github_m   = re.search(r'github\.com/([\w-]+)', text, re.IGNORECASE)
+                            linkedin_m = re.search(r'linkedin\.com/in/([\w-]+)', text, re.IGNORECASE)
+                            pf_cur = st.session_state.profile
+                            new_name     = (lines[0] if lines else "") or pf_cur.name
+                            new_email    = (email_m.group(0)    if email_m    else "") or pf_cur.email
+                            new_phone    = (phone_m.group(0)    if phone_m    else "") or pf_cur.phone
+                            new_github   = (f"github.com/{github_m.group(1)}"   if github_m   else "") or ""
+                            new_linkedin = (f"linkedin.com/in/{linkedin_m.group(1)}" if linkedin_m else "") or ""
+                            st.session_state["_pf_pending"] = {
+                                "_pf_name":     new_name,
+                                "_pf_email":    new_email,
+                                "_pf_phone":    new_phone,
+                                "_pf_github":   new_github,
+                                "_pf_linkedin": new_linkedin,
+                            }
+                            _upload_profile = UserProfile(
+                                name=new_name, email=new_email, phone=new_phone,
+                                github=new_github, linkedin=new_linkedin,
+                                base_summary=pf_cur.base_summary,
+                                skills=pf_cur.skills,
+                                pref_role=pf_cur.pref_role,
+                                pref_location=pf_cur.pref_location,
+                            )
+                            st.session_state.profile = _upload_profile
+                            run_async(repo.save_profile(_upload_profile, user_id=user_id))
+                            _existing_ledger = run_async(repo.get_ledger(user_id))
+                            _marker = "## Imported Resume:"
+                            _base = _existing_ledger.split(_marker)[0].rstrip() if _existing_ledger else ""
+                            # ═══ Strip legacy '## Technical Skills' only ═══
+                            _legacy_marker = "## Technical Skills"
+                            if _legacy_marker in _base:
+                                _base = _base.split(_legacy_marker)[0]
+                            _base = _base.rstrip()
+                            # Always include Manual Profile if the user explicitly saved one.
+                            _mp_block = ""
+                            _mp_marker = "## Manual Profile:"
+                            if _mp_marker in _existing_ledger:
+                                _mp_block = "\n\n" + _mp_marker + _existing_ledger.split(_mp_marker, 1)[1].split("\n## ")[0].rstrip()
+                            _new_ledger = _base + _mp_block + f"\n\n{_marker} {uploaded.name}\n\n{text}"
+                            run_async(repo.save_ledger(user_id, _new_ledger))
+                            if tailor:
+                                _lm_new = LedgerManager.from_content(_new_ledger, db_path="data/faiss.index")
+                                _lm_new.model = st.session_state.st_model
+                                _lm_new.build_index()
+                                st.session_state.tailor.ledger = _lm_new
+                            _invalidate_caches()
+                            st.toast(f"{uploaded.name} ingested ✓  Profile fields auto-filled above.", icon="✅")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Resume ingestion failed: {e}")
 
 
 def _render_education_section():

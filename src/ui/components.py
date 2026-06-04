@@ -44,12 +44,20 @@ def filter_jobs(jobs: List[Job], chip: Optional[str]) -> List[Job]:
 
 
 def profile_completion(pf: UserProfile) -> float:
-    """Return 0.0–1.0 profile completion ratio (6 fields)."""
+    """Return 0.0–1.0 profile completion ratio across all meaningfully filled fields."""
     filled = sum([
-        bool(pf.name), bool(pf.email), bool(pf.github),
-        bool(pf.skills), bool(pf.base_summary), bool(pf.website),
+        bool(pf.name),
+        bool(pf.email),
+        bool(pf.phone),
+        bool(pf.github),
+        bool(pf.linkedin),
+        bool(pf.website),
+        bool(pf.skills),
+        bool(pf.base_summary),
+        bool(pf.education),
+        bool(pf.experience),
     ])
-    return filled / 6
+    return filled / 10
 
 
 def search_jobs(jobs: List[Job], query: Optional[str]) -> List[Job]:

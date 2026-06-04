@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # COOKIE AUTH HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 _COOKIE_NAME = "ts_session"
-_COOKIE_DAYS = 30
+_COOKIE_DAYS = 7  # reduced from 30 — shorter window for credential abuse
 
 # SESSION_SECRET must be set in production.  If it is missing we generate a
 # random per-process secret and log a loud warning — sessions will not survive
@@ -56,8 +56,11 @@ def set_session_cookie(uid: int, username: str) -> None:
     """Set a signed session cookie and reload the page."""
     value = _make_cookie_value(uid, username)
     expiry = (datetime.now() + timedelta(days=_COOKIE_DAYS)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    # NOTE: HttpOnly cannot be set from JavaScript — use a reverse proxy
+    # (nginx) to add the HttpOnly flag in production:
+    #   proxy_cookie_flags ts_session HttpOnly Secure;
     _components.html(
-        f'<script>document.cookie="{_COOKIE_NAME}={value}; path=/; expires={expiry}; SameSite=Lax"; window.parent.location.reload();</script>',
+        f'<script>document.cookie="{_COOKIE_NAME}={value}; path=/; expires={expiry}; SameSite=Lax; Secure"; window.parent.location.reload();</script>',
         height=0,
     )
 
@@ -65,7 +68,7 @@ def set_session_cookie(uid: int, username: str) -> None:
 def delete_session_cookie() -> None:
     """Delete the session cookie and reload."""
     _components.html(
-        f'<script>document.cookie="{_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax"; window.parent.location.reload();</script>',
+        f'<script>document.cookie="{_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax; Secure"; window.parent.location.reload();</script>',
         height=0,
     )
 
