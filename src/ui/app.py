@@ -88,14 +88,16 @@ with st.sidebar:
     st.markdown('<div class="nav-logo">⚡ Titan<span>Swarm</span></div>', unsafe_allow_html=True)
 
     async def _sidebar_counts():
-        _tot, _pend, _subm, _disc, _intv = await asyncio.gather(
-            repo.count_all(user_id=_USER_ID),
+        _pend, _subm, _disc, _intv, _rej = await asyncio.gather(
             repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID),
             repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID),
             repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=_USER_ID),
             repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=_USER_ID),
+            repo.get_jobs_by_status(JobStatus.REJECTED, user_id=_USER_ID),
         )
-        return _tot, len(_pend), len(_subm), len(_disc), len(_intv)
+        # 'Sourced' = all jobs EXCEPT rejected (which are in the pipeline already)
+        _active = len(_pend) + len(_subm) + len(_disc) + len(_intv)
+        return _active, len(_pend), len(_subm), len(_disc), len(_intv)
     total, n_pending, n_submitted, n_discovered, n_interview = run_async(_sidebar_counts())
 
     st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
@@ -137,7 +139,7 @@ with st.sidebar:
         st.markdown('<div style="font-size:0.75rem;color:#f59e0b;margin-top:4px;">⚠ Complete your profile for better tailoring</div>', unsafe_allow_html=True)
 
     st.markdown("")
-    st.caption("TitanSwarm v2.0 · Fall 2026 SWE")
+    st.caption("TitanSwarm v2.0")
 
     st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
     _uname = st.session_state.get("username", "")
