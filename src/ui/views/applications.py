@@ -51,7 +51,7 @@ def render(repo, user_id: int):
             <div style="font-size:3rem;">📭</div>
             <div style="font-size:1.1rem;font-weight:700;color:#0f172a;margin-top:0.75rem;">No applications yet</div>
             <div style="font-size:0.875rem;color:#64748b;margin-top:0.4rem;">
-                Head to <strong>Job Feed</strong> and hit ⚡ Auto-Apply on a role to get started.
+                Head to <strong>Job Feed</strong> and hit 📄 Tailor Resume on a role to get started.
             </div>
         </div>""", unsafe_allow_html=True)
     else:
@@ -70,7 +70,7 @@ def render(repo, user_id: int):
                 if not jobs:
                     st.markdown('<div style="font-size:0.78rem;color:#cbd5e1;text-align:center;padding:1rem 0;">Empty</div>', unsafe_allow_html=True)
                 else:
-                    for job in jobs[:10]:
+                    for job in jobs:
                         st.markdown(f"""
                         <div class="kanban-card">
                             <div class="kc-company">{job.company}</div>
