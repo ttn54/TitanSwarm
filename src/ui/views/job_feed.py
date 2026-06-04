@@ -111,10 +111,12 @@ def render(repo, profile: UserProfile, tailor, pdf_gen, st_model, user_id: int):
         st.rerun()
 
     # ── Filter chips ──
+    if "filter_chip" not in st.session_state:
+        st.session_state.filter_chip = "All"
     selected_chip = st.pills(
         "Filter",
         options=["All", "Remote", "Internship", "Full-time", "Co-op"],
-        default="All",
+        key="filter_chip",
         label_visibility="collapsed",
     )
 
