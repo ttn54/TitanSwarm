@@ -102,10 +102,14 @@ class TestProfileCompletion:
         pf = UserProfile(
             name="Zen",
             email="z@sfu.ca",
+            phone="(123) 456-7890",
             github="github.com/ttn54",
+            linkedin="linkedin.com/in/zen",
             skills=["Python"],
             base_summary="CS student",
             website="zennguyen.me",
+            education=[{"degree": "BSc", "institution": "SFU"}],
+            experience=[{"title": "SWE", "company": "Acme"}],
         )
         assert profile_completion(pf) == 1.0
 
@@ -114,15 +118,19 @@ class TestProfileCompletion:
         pf = UserProfile(
             name="Zen",
             email="z@sfu.ca",
+            phone="(123) 456-7890",
             github="github.com/ttn54",
+            linkedin="linkedin.com/in/zen",
             skills=["Python"],
             base_summary="CS student",
-            # website missing
+            # website missing → 9/10
+            education=[{"degree": "BSc", "institution": "SFU"}],
+            experience=[{"title": "SWE", "company": "Acme"}],
         )
         pct = profile_completion(pf)
         assert pct < 1.0
-        # 5 out of 6 filled
-        assert abs(pct - 5 / 6) < 0.01
+        # 9 out of 10 filled (website missing)
+        assert abs(pct - 9 / 10) < 0.01
 
     def test_empty_profile_is_zero(self):
         from src.ui.components import profile_completion
