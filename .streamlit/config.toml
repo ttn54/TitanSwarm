@@ -7,7 +7,7 @@ textColor = "#0f172a"
 font = "sans serif"
 
 [server]
-runOnSave = true
+runOnSave = false
 enableCORS = true
 enableXsrfProtection = true
 port = 8501
