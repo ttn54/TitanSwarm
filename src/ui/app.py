@@ -15,6 +15,7 @@ All auth logic lives in ``src.ui.auth``.
 import asyncio
 import os
 import sys
+import time as _time
 import html as _html
 
 import streamlit as st
@@ -87,18 +88,23 @@ st_model = st.session_state.st_model
 with st.sidebar:
     st.markdown('<div class="nav-logo">⚡ Titan<span>Swarm</span></div>', unsafe_allow_html=True)
 
-    async def _sidebar_counts():
-        _pend, _subm, _disc, _intv, _rej = await asyncio.gather(
-            repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID),
-            repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID),
-            repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=_USER_ID),
-            repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=_USER_ID),
-            repo.get_jobs_by_status(JobStatus.REJECTED, user_id=_USER_ID),
-        )
-        # 'Sourced' = all jobs EXCEPT rejected (which are in the pipeline already)
-        _active = len(_pend) + len(_subm) + len(_disc) + len(_intv)
-        return _active, len(_pend), len(_subm), len(_disc), len(_intv)
-    total, n_pending, n_submitted, n_discovered, n_interview = run_async(_sidebar_counts())
+    # Cache sidebar pipeline counts — re-query at most every 30 seconds
+    _now = int(_time.time())
+    _side_ts = st.session_state.get("_side_ts", 0)
+    if _now - _side_ts > 30 or "_side_data" not in st.session_state:
+        async def _sidebar_counts():
+            _pend, _subm, _disc, _intv, _rej = await asyncio.gather(
+                repo.get_jobs_by_status(JobStatus.PENDING_REVIEW, user_id=_USER_ID),
+                repo.get_jobs_by_status(JobStatus.SUBMITTED, user_id=_USER_ID),
+                repo.get_jobs_by_status(JobStatus.DISCOVERED, user_id=_USER_ID),
+                repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=_USER_ID),
+                repo.get_jobs_by_status(JobStatus.REJECTED, user_id=_USER_ID),
+            )
+            _active = len(_pend) + len(_subm) + len(_disc) + len(_intv)
+            return _active, len(_pend), len(_subm), len(_disc), len(_intv)
+        st.session_state["_side_data"] = run_async(_sidebar_counts())
+        st.session_state["_side_ts"] = _now
+    total, n_pending, n_submitted, n_discovered, n_interview = st.session_state["_side_data"]
 
     st.markdown('<hr class="nav-divider">', unsafe_allow_html=True)
     st.markdown('<div class="nav-section-label">Menu</div>', unsafe_allow_html=True)
