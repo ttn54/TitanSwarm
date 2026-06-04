@@ -26,20 +26,29 @@ def run_async(coro):
 
 
 def filter_jobs(jobs: List[Job], chip: Optional[str]) -> List[Job]:
-    """Filter a list of jobs based on the selected filter chip."""
+    """Filter a list of jobs based on the selected filter chip.
+
+    Uses word-boundary matching to avoid false positives:
+      - 'intern' matches 'Software Engineer Intern' but NOT 'international'
+      - 'remote' matches 'Remote' but NOT 'remote-first' as a substring artefact
+    """
     if not chip or chip == "All":
         return jobs
     result = []
     for job in jobs:
         text = (job.role + " " + job.job_description).lower()
-        if chip == "Remote" and "remote" in text:
-            result.append(job)
-        elif chip == "Internship" and "intern" in text:
-            result.append(job)
-        elif chip == "Full-time" and ("full-time" in text or "full time" in text):
-            result.append(job)
-        elif chip == "Co-op" and ("co-op" in text or "coop" in text):
-            result.append(job)
+        if chip == "Remote":
+            if re.search(r'\bremote\b', text):
+                result.append(job)
+        elif chip == "Internship":
+            if re.search(r'\bintern(?:ship)?\b', text):
+                result.append(job)
+        elif chip == "Full-time":
+            if re.search(r'\bfull[-\s]?time\b', text):
+                result.append(job)
+        elif chip == "Co-op":
+            if re.search(r'\bco[-\s]?op\b', text):
+                result.append(job)
     return result
 
 
