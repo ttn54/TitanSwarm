@@ -1,26 +1,25 @@
 """
-Preferences page — user profile, daemon config, GitHub enrichment, resume upload.
+Preferences page — user profile, GitHub enrichment, resume upload.
 
 The most complex page in the application, handling:
 - Identity (name, email, phone, github, linkedin, website)
 - Context Ledger (professional summary, skills)
 - Job Preferences (role, location, work mode, job type)
-- Daemon Config (scraper roles/locations/interval)
 - GitHub Context refresh
 - Resume PDF upload + auto-fill
 - Education entries
 - Work Experience entries
+
+Daemon config is managed via .env on the server — not exposed to end users.
 """
 from __future__ import annotations
 
-import os
 import re
 
 import streamlit as st
 
 from src.core.models import UserProfile
 from src.core.ledger import LedgerManager
-from src.core.env_writer import upsert_env_vars, read_env_var
 from src.ui.components import (
     run_async, profile_completion, build_manual_ledger_section,
 )
@@ -59,7 +58,6 @@ def render(repo, profile: UserProfile, tailor, user_id: int, prev_on_prefs: bool
 
     with pc2:
         _render_job_preferences(repo, profile, user_id)
-        _render_daemon_config()
         _render_github_context(repo, tailor, user_id)
         _render_resume_upload(repo, tailor, profile, user_id)
 
@@ -154,62 +152,6 @@ def _render_job_preferences(repo, profile, user_id):
             run_async(repo.save_profile(_saved_pf, user_id=user_id))
             st.toast("Preferences saved!", icon="✅")
             st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-
-def _render_daemon_config():
-    with st.container(border=True):
-        st.markdown('<div class="profile-card-title">Daemon Config</div>', unsafe_allow_html=True)
-        st.markdown('<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.75rem;">Configure which roles and locations the background scraper targets. Uses <code>|</code> to separate values internally.</div>', unsafe_allow_html=True)
-
-        _env_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")
-        _cur_roles = read_env_var(_env_path, "SCRAPER_ROLES",
-            read_env_var(_env_path, "SCRAPER_ROLE", "Software Engineer Intern"))
-        _cur_locs  = read_env_var(_env_path, "SCRAPER_LOCATIONS",
-            read_env_var(_env_path, "SCRAPER_LOCATION", "Vancouver, BC"))
-        _cur_interval = read_env_var(_env_path, "SCRAPER_INTERVAL_HOURS", "12")
-        _cur_results  = read_env_var(_env_path, "SCRAPER_RESULTS_WANTED", "25")
-
-        _roles_default  = "\n".join(r.strip() for r in _cur_roles.split("|")  if r.strip())
-        _locs_default   = "\n".join(l.strip() for l in _cur_locs.split("|")   if l.strip())
-
-        _daemon_roles = st.text_area("Roles to search (one per line)", value=_roles_default, height=100, key="_daemon_roles")
-        _daemon_locs = st.text_area("Locations (one per line)", value=_locs_default, height=100, key="_daemon_locs")
-        _dc1, _dc2 = st.columns(2)
-        with _dc1:
-            _daemon_interval = st.number_input(
-                "Interval (hours)", min_value=1, max_value=168,
-                value=int(_cur_interval) if _cur_interval.isdigit() else 12,
-                key="_daemon_interval",
-            )
-        with _dc2:
-            _daemon_results = st.number_input(
-                "Results per sweep", min_value=5, max_value=100,
-                value=int(_cur_results) if _cur_results.isdigit() else 25,
-                key="_daemon_results",
-            )
-
-        _n_roles = len([r for r in _daemon_roles.splitlines() if r.strip()])
-        _n_locs  = len([l for l in _daemon_locs.splitlines()  if l.strip()])
-        _n_sweeps = _n_roles * _n_locs
-        if _n_sweeps > 0:
-            st.caption(f"🔄 {_n_sweeps} concurrent sweep(s) per cycle ({_n_roles} role(s) × {_n_locs} location(s))")
-
-        if st.button("💾  Save Daemon Config", use_container_width=True):
-            _roles_pipe = "|".join(r.strip() for r in _daemon_roles.splitlines() if r.strip())
-            _locs_pipe  = "|".join(l.strip() for l in _daemon_locs.splitlines()  if l.strip())
-            if not _roles_pipe or not _locs_pipe:
-                st.warning("Enter at least one role and one location before saving.")
-            else:
-                upsert_env_vars(_env_path, {
-                    "SCRAPER_ROLES":          _roles_pipe,
-                    "SCRAPER_LOCATIONS":      _locs_pipe,
-                    "SCRAPER_INTERVAL_HOURS": str(int(_daemon_interval)),
-                    "SCRAPER_RESULTS_WANTED": str(int(_daemon_results)),
-                })
-                st.toast("Daemon config saved! Restart the daemon process to apply.", icon="⚙️")
-                st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
