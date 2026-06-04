@@ -161,7 +161,7 @@ def render_auth_page():
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="auth-title">⚡ TitanSwar</div>', unsafe_allow_html=True)
+    st.markdown('<div class="auth-title">⚡ TitanSwarm</div>', unsafe_allow_html=True)
     st.markdown('<div class="auth-sub">Your autonomous job application Co-Pilot</div>', unsafe_allow_html=True)
 
     tab_login, tab_register = st.tabs(["Log In", "Register"])
