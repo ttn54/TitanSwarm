@@ -51,11 +51,12 @@ def render(repo, profile: UserProfile, tailor, pdf_gen, st_model, user_id: int):
 
     st.markdown("<br>", unsafe_allow_html=True)
     k1, k2, k3, k4 = st.columns(4)
+    _n_interview_feed = len(run_async(repo.get_jobs_by_status(JobStatus.INTERVIEW, user_id=user_id)))
     kpi_data = [
         (_total,       "Total Sourced",  f"+{n_discovered} new"),
         (n_pending,   "Pending Review", "Needs action"),
         (n_submitted, "Applications",   "Sent"),
-        (int(n_submitted * 0.15) if n_submitted else 0, "Responses", "Est. rate"),
+        (_n_interview_feed, "Interviews", "Real data"),
     ]
     for col, (val, label, sub) in zip([k1, k2, k3, k4], kpi_data):
         col.markdown(f"""
@@ -206,7 +207,9 @@ def render(repo, profile: UserProfile, tailor, pdf_gen, st_model, user_id: int):
 def _render_job_card(job: Job, repo, profile, tailor, pdf_gen, _match_scores, user_id: int):
     """Render a single job card with all its action buttons."""
     skills_html = "".join(f'<span class="skill-pill">{s}</span>' for s in (job.required_skills or [])[:5])
-    desc = _html.escape(job.job_description[:180].rstrip()) + "…"
+    import textwrap as _tw
+    _raw = job.job_description.strip()
+    desc = _html.escape(_tw.shorten(_raw, width=180, placeholder="…")) if len(_raw) > 180 else _html.escape(_raw)
     _ms = _match_scores.get(job.id, 0)
     _ms_color = "#22c55e" if _ms >= 70 else "#eab308" if _ms >= 40 else "#ef4444"
     _ms_badge = f'<span style="background:{_ms_color};color:#fff;padding:2px 8px;border-radius:10px;font-size:0.72rem;font-weight:700;">{_ms}% match</span>'
