@@ -49,3 +49,13 @@ jobs:
           echo ""
           echo "=== Running containers ==="
           docker ps --format '{{.Names}}  {{.Status}}'
+
+      - name: Reconnect nginx to app network
+        # After docker compose recreates the app network, the standalone
+        # nginx proxy loses its connection → 502 Bad Gateway.
+        # Re-attach it (idempotent — safe if already connected).
+        run: |
+          set -e
+          docker inspect titanswarm_proxy >/dev/null 2>&1 || exit 0
+          docker network connect app_default titanswarm_proxy 2>/dev/null || true
+          echo "✓ nginx proxy connected to app_default"
