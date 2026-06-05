@@ -1,27 +1,48 @@
-name: Deploy to DigitalOcean
+name: Deploy to Laptop Server
 
 on:
   push:
     branches: [master]
   workflow_dispatch:
 
+# Prevent concurrent deployments from stepping on each other
+concurrency:
+  group: laptop-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: root
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          script: |
-            set -e
-            cd TitanSwarm
-            git fetch origin && git reset --hard origin/master
-            [ -f .env ] || { echo "ERROR: .env missing"; exit 1; }
-            # Stop first (defeats restart:unless-stopped), then remove
-            docker compose down --remove-orphans 2>/dev/null || true
-            docker stop titanswarm_ui titanswarm_daemon 2>/dev/null || true
-            docker rm -f titanswarm_ui titanswarm_daemon 2>/dev/null || true
-            docker compose up -d --build
-            docker ps --format '{{.Names}}  {{.Status}}'
+      - name: Pull latest code
+        run: |
+          set -e
+          cd /home/zen/server-infra/app
+          git fetch origin && git reset --hard origin/master
+          echo "✓ Repo updated to $(git rev-parse --short HEAD)"
+
+      - name: Verify environment file
+        run: |
+          set -e
+          # .env must exist in the infra root (where docker-compose.yml lives)
+          if [ ! -f /home/zen/server-infra/.env ]; then
+            echo "::error::.env file missing at /home/zen/server-infra/.env"
+            exit 1
+          fi
+          echo "✓ .env file present"
+
+      - name: Rebuild and restart containers
+        run: |
+          set -e
+          cd /home/zen/server-infra
+
+          # Tear down old containers & orphans
+          docker compose down --remove-orphans 2>/dev/null || true
+          docker rm -f titanswarm_ui titanswarm_daemon 2>/dev/null || true
+
+          # Build and boot fresh
+          docker compose up -d --build
+
+          echo ""
+          echo "=== Running containers ==="
+          docker ps --format '{{.Names}}  {{.Status}}'
