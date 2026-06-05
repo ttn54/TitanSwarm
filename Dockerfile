@@ -44,8 +44,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Python dependencies ───────────────────────────────────────────────────────
 COPY requirements-prod.txt .
 
-# Install CPU-only PyTorch first (separate index), then everything else
-RUN pip install --no-cache-dir --upgrade pip && \
+# Install CPU-only PyTorch first (separate index), then everything else.
+# BuildKit cache mount persists pip downloads across builds — no re-downloading
+# 800 MB of PyTorch every time unless requirements-prod.txt changes.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
         torch==2.10.0 \
         --index-url https://download.pytorch.org/whl/cpu && \

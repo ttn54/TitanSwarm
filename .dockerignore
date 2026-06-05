@@ -1,0 +1,59 @@
+# ── Git ──
+.git
+.gitignore
+.gitattributes
+
+# ── Python cache ──
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# ── Virtual environments ──
+.venv/
+venv/
+env/
+
+# ── IDE & editor ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Tests ──
+tests/
+test_output/
+
+# ── Output & runtime data (volume-mounted, not needed in image) ──
+output/
+data/*.db
+db/
+
+# ── Docs & plans (not needed at runtime) ──
+docs/
+ARCHITECTURE.md
+DEPLOY.md
+README.md
+
+# ── Scripts (dev-only) ──
+scripts/
+
+# ── Environment files (injected via docker-compose env_file) ──
+.env
+.env.*
+
+# ── Docker ──
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# ── CI ──
+.github/
+
+# ── OS junk ──
+.DS_Store
+Thumbs.db
