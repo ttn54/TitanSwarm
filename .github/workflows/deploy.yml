@@ -25,8 +25,8 @@ jobs:
         run: |
           set -e
           # .env must exist in the infra root (where docker-compose.yml lives)
-          if [ ! -f /home/zen/server-infra/.env ]; then
-            echo "::error::.env file missing at /home/zen/server-infra/.env"
+          if [ ! -f /home/zen/server-infra/app/.env ]; then
+            echo "::error::.env file missing at /home/zen/server-infra/app/.env"
             exit 1
           fi
           echo "✓ .env file present"
@@ -34,7 +34,7 @@ jobs:
       - name: Rebuild and restart containers
         run: |
           set -e
-          cd /home/zen/server-infra
+          cd /home/zen/server-infra/app
 
           # Tear down old containers & orphans
           docker compose down --remove-orphans 2>/dev/null || true
