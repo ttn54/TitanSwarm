@@ -45,6 +45,9 @@
             padding-bottom: 2px;
             margin-top: 10px;
             margin-bottom: 5px;
+            /* Never leave a heading stranded at the bottom of a page */
+            break-after: avoid;
+            page-break-after: avoid;
         }
 
         /* ── Summary ── */
@@ -54,17 +57,22 @@
         .skills-line { font-size: inherit; margin-bottom: 1px; }
 
         /* ── Entry blocks ── */
-        .entry { margin-bottom: 7px; }
+        .entry {
+            margin-bottom: 7px;
+            /* Keep each entry (title + company + bullets) on the same page */
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
         .row {
             display: flex;
             justify-content: space-between;
             align-items: baseline;
             width: 100%;
         }
-        .entry-title { font-weight: bold; font-size: inherit; }
-        .entry-date  { font-size: 9.5pt; white-space: nowrap; padding-left: 8px; }
-        .entry-sub   { font-style: italic; font-size: 9.5pt; }
-        .entry-loc   { font-style: italic; font-size: 9.5pt; white-space: nowrap; padding-left: 8px; }
+        .entry-title { font-weight: bold; font-size: inherit; flex: 1 1 0; min-width: 0; }
+        .entry-date  { font-size: 9.5pt; white-space: nowrap; padding-left: 8px; flex-shrink: 0; }
+        .entry-sub   { font-style: italic; font-size: 9.5pt; flex: 1 1 0; min-width: 0; }
+        .entry-loc   { font-style: italic; font-size: 9.5pt; white-space: nowrap; padding-left: 8px; flex-shrink: 0; }
 
         ul {
             margin: 2px 0 0 14px;
