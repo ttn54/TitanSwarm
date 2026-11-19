@@ -82,24 +82,36 @@ class BrowserManager:
 
     async def _render_pdf_internal(self, html: str) -> bytes:
         page = await self._browser.new_page()
-        await page.set_content(html)
+        await page.set_content(html, wait_until="networkidle")
 
         # ── Auto-shrink to fit 1 page ──
-        # Letter = 8.5 × 11 in = 816 × 1056 px at 96 dpi
-        PAGE_HEIGHT_PX = 1056
+        # Set the viewport to Letter-width so layout matches the PDF page.
+        # Letter = 8.5 in × 96 dpi = 816 px (default viewport is 800 px,
+        # which can cause content to reflow wider in the PDF).
+        LETTER_WIDTH_PX = 816
+        LETTER_HEIGHT_PX = 1056  # 11 in × 96 dpi
+        await page.set_viewport_size(
+            {"width": LETTER_WIDTH_PX, "height": LETTER_HEIGHT_PX}
+        )
+        # Let the browser re-layout at the new width
+        await page.wait_for_timeout(50)
+
         content_height = await page.evaluate("document.body.scrollHeight")
 
-        if content_height > PAGE_HEIGHT_PX:
-            scale = PAGE_HEIGHT_PX / content_height
+        # Compute a PDF-level scale factor if content overflows 1 page.
+        # Playwright's page.pdf(scale=…) applies to the *print* renderer,
+        # which is what actually controls pagination — CSS transforms do not.
+        pdf_scale = 1.0
+        if content_height > LETTER_HEIGHT_PX:
+            pdf_scale = LETTER_HEIGHT_PX / content_height
             # Floor to 3 decimals so we never round UP past the page
-            scale = int(scale * 1000) / 1000
-            await page.evaluate(f"""
-                document.body.style.transformOrigin = 'top left';
-                document.body.style.transform = 'scale({scale})';
-            """)
+            pdf_scale = int(pdf_scale * 1000) / 1000
+            # Clamp to Playwright's allowed range (0.1 – 2.0)
+            pdf_scale = max(0.1, min(pdf_scale, 2.0))
 
         pdf_bytes = await page.pdf(
             format="Letter",
+            scale=pdf_scale,
             print_background=True,
             margin={"top": "0", "right": "0", "bottom": "0", "left": "0"}
         )
