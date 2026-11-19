@@ -150,7 +150,7 @@ class PDFGenerator:
         # Use slightly larger font when work experience is not tech-relevant
         # so the extra project bullets fill the page properly.
         _work_relevant = getattr(ai_data, "work_experience_relevant", True)
-        font_size_pt = "10pt" if _work_relevant else "10.5pt"
+        font_size_pt = "9.8pt" if _work_relevant else "10.5pt"
         rendered_html = template.render(
             personal_info=user_ledger.get("personal_info", {}),
             ledger=user_ledger,
