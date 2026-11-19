@@ -83,6 +83,21 @@ class BrowserManager:
     async def _render_pdf_internal(self, html: str) -> bytes:
         page = await self._browser.new_page()
         await page.set_content(html)
+
+        # ── Auto-shrink to fit 1 page ──
+        # Letter = 8.5 × 11 in = 816 × 1056 px at 96 dpi
+        PAGE_HEIGHT_PX = 1056
+        content_height = await page.evaluate("document.body.scrollHeight")
+
+        if content_height > PAGE_HEIGHT_PX:
+            scale = PAGE_HEIGHT_PX / content_height
+            # Floor to 3 decimals so we never round UP past the page
+            scale = int(scale * 1000) / 1000
+            await page.evaluate(f"""
+                document.body.style.transformOrigin = 'top left';
+                document.body.style.transform = 'scale({scale})';
+            """)
+
         pdf_bytes = await page.pdf(
             format="Letter",
             print_background=True,
